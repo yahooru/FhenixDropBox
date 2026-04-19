@@ -3,9 +3,14 @@
  *
  * This module provides utilities for uploading and retrieving files from IPFS.
  * Uses Pinata as the IPFS provider.
+ *
+ * IMPORTANT: Pinata JWT should be used server-side only.
+ * For client-side, use the /api/ipfs route instead.
  */
 
 const PINATA_API_URL = 'https://api.pinata.cloud'
+const PINATA_GATEWAY = 'https://gateway.pinata.cloud/ipfs'
+const PUBLIC_GATEWAY = 'https://ipfs.io/ipfs'
 
 interface PinataResponse {
   IpfsHash: string
@@ -19,35 +24,33 @@ interface UploadResult {
   timestamp: string
 }
 
+// ─── Server-side Upload ────────────────────────────────────────────────────────
+
 /**
- * Upload a file to IPFS via Pinata
- *
- * @param file - The file to upload
- * @returns The IPFS hash and metadata
+ * Upload a file to IPFS via Pinata (server-side only)
+ * Use this in API routes with PINATA_JWT env var (server-only)
  */
-export async function uploadToIPFS(file: File): Promise<UploadResult> {
-  const pinataJWT = process.env.NEXT_PUBLIC_PINATA_JWT || process.env.PINATA_JWT
+export async function uploadToIPFSServer(fileBuffer: ArrayBuffer, filename: string): Promise<UploadResult> {
+  const pinataJWT = process.env.PINATA_JWT
 
   if (!pinataJWT) {
-    // Fallback to mock upload for demo
-    return mockUpload(file)
+    throw new Error('PINATA_JWT not configured on server')
   }
 
   const formData = new FormData()
-  formData.append('file', file)
+  const blob = new Blob([fileBuffer])
+  formData.append('file', blob, filename)
 
   const metadata = JSON.stringify({
-    name: file.name,
+    name: filename,
     keyvalues: {
-      type: file.type,
-      size: file.size
+      uploadedAt: new Date().toISOString(),
+      encrypted: 'true'
     }
   })
   formData.append('pinataMetadata', metadata)
 
-  const options = JSON.stringify({
-    cidVersion: 1
-  })
+  const options = JSON.stringify({ cidVersion: 1 })
   formData.append('pinataContent', options)
 
   try {
@@ -76,34 +79,165 @@ export async function uploadToIPFS(file: File): Promise<UploadResult> {
   }
 }
 
+// ─── Client-side Upload ────────────────────────────────────────────────────────
+
 /**
- * Mock upload for demo purposes
+ * Upload a file to IPFS via API route (client-side safe)
+ * The API route uses server-side Pinata JWT
  */
-async function mockUpload(file: File): Promise<UploadResult> {
-  // Simulate upload delay
-  await new Promise(resolve => setTimeout(resolve, 1000))
+export async function uploadToIPFSViaAPI(file: File): Promise<UploadResult> {
+  const formData = new FormData()
+  formData.append('file', file)
 
-  // Generate a mock IPFS hash
-  const mockHash = 'Qm' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
+  try {
+    const response = await fetch('/api/ipfs/upload', {
+      method: 'POST',
+      body: formData
+    })
 
-  return {
-    hash: mockHash,
-    size: file.size,
-    timestamp: new Date().toISOString()
+    if (!response.ok) {
+      throw new Error(`Upload failed: ${response.statusText}`)
+    }
+
+    return await response.json()
+  } catch (error) {
+    console.error('IPFS upload error:', error)
+    throw error
   }
 }
 
 /**
- * Get a file from IPFS
+ * Upload file - chooses the right method based on context
+ * In browser: uses API route
+ * In server: uses server-side direct upload
+ */
+export async function uploadToIPFS(file: File): Promise<UploadResult> {
+  // Check if we're in a browser environment
+  if (typeof window !== 'undefined') {
+    return uploadToIPFSViaAPI(file)
+  }
+  // Server-side would need buffer conversion
+  throw new Error('Use uploadToIPFSServer with file buffer for server-side')
+}
+
+// ─── Encrypted File Upload ──────────────────────────────────────────────────────
+
+/**
+ * Encrypt and upload a file (client-side)
  *
- * @param hash - The IPFS hash
- * @returns The file content as a blob
+ * Flow:
+ * 1. Generate AES-256 key
+ * 2. Encrypt file content with AES
+ * 3. Upload encrypted blob to IPFS
+ * 4. Return hash + encryption key (key should be shared securely)
+ */
+export async function encryptAndUpload(
+  file: File,
+  onProgress?: (progress: number) => void
+): Promise<{ ipfsHash: string; key: string; iv: string; size: number }> {
+  onProgress?.(10)
+
+  // Generate encryption key
+  const key = await crypto.subtle.generateKey(
+    { name: 'AES-GCM', length: 256 },
+    true,
+    ['encrypt', 'decrypt']
+  )
+
+  // Generate IV
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+
+  onProgress?.(20)
+
+  // Read file
+  const fileBuffer = await file.arrayBuffer()
+
+  onProgress?.(40)
+
+  // Export key for storage/transmission
+  const exportedKey = await crypto.subtle.exportKey('raw', key)
+  const keyBase64 = btoa(String.fromCharCode(...new Uint8Array(exportedKey)))
+
+  // Encrypt
+  const encrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    fileBuffer
+  )
+
+  onProgress?.(70)
+
+  // Create encrypted blob
+  const encryptedBlob = new Blob([encrypted], { type: 'application/octet-stream' })
+
+  // Upload encrypted file to IPFS via API
+  const result = await uploadToIPFSServer(encrypted, `encrypted_${file.name}`)
+
+  onProgress?.(100)
+
+  return {
+    ipfsHash: result.hash,
+    key: keyBase64,
+    iv: btoa(String.fromCharCode(...iv)),
+    size: result.size
+  }
+}
+
+/**
+ * Download and decrypt a file (client-side)
+ */
+export async function downloadAndDecrypt(
+  ipfsHash: string,
+  keyBase64: string,
+  ivBase64: string,
+  filename: string
+): Promise<void> {
+  // Fetch from IPFS
+  const response = await fetch(`${PINATA_GATEWAY}/${ipfsHash}`)
+  const encrypted = await response.arrayBuffer()
+
+  // Import key
+  const keyData = Uint8Array.from(atob(keyBase64), c => c.charCodeAt(0))
+  const key = await crypto.subtle.importKey(
+    'raw',
+    keyData,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['decrypt']
+  )
+
+  // Import IV
+  const iv = Uint8Array.from(atob(ivBase64), c => c.charCodeAt(0))
+
+  // Decrypt
+  const decrypted = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    encrypted
+  )
+
+  // Download
+  const blob = new Blob([decrypted])
+  const url = URL.createObjectURL(blob)
+
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+// ─── Standard IPFS Operations ─────────────────────────────────────────────────
+
+/**
+ * Get a file from IPFS
  */
 export async function getFromIPFS(hash: string): Promise<Blob> {
-  // Try multiple IPFS gateways
   const gateways = [
-    `https://gateway.pinata.cloud/ipfs/${hash}`,
-    `https://ipfs.io/ipfs/${hash}`,
+    `${PINATA_GATEWAY}/${hash}`,
+    `${PUBLIC_GATEWAY}/${hash}`,
     `https://cloudflare-ipfs.com/ipfs/${hash}`
   ]
 
@@ -113,8 +247,7 @@ export async function getFromIPFS(hash: string): Promise<Blob> {
       if (response.ok) {
         return await response.blob()
       }
-    } catch (error) {
-      console.warn(`Gateway ${gateway} failed:`, error)
+    } catch {
       continue
     }
   }
@@ -126,14 +259,11 @@ export async function getFromIPFS(hash: string): Promise<Blob> {
  * Get the public gateway URL for an IPFS hash
  */
 export function getIPFSUrl(hash: string): string {
-  return `https://gateway.pinata.cloud/ipfs/${hash}`
+  return `${PINATA_GATEWAY}/${hash}`
 }
 
 /**
- * Download a file from IPFS
- *
- * @param hash - The IPFS hash
- * @param filename - The filename to save as
+ * Download a file from IPFS (unencrypted)
  */
 export async function downloadFromIPFS(hash: string, filename: string): Promise<void> {
   const blob = await getFromIPFS(hash)
@@ -149,10 +279,10 @@ export async function downloadFromIPFS(hash: string, filename: string): Promise<
 }
 
 /**
- * Pin an IPFS hash (keep it available)
+ * Pin an IPFS hash (server-side only)
  */
 export async function pinHash(hash: string): Promise<boolean> {
-  const pinataJWT = process.env.NEXT_PUBLIC_PINATA_JWT || process.env.PINATA_JWT
+  const pinataJWT = process.env.PINATA_JWT
 
   if (!pinataJWT) {
     console.warn('Pinata JWT not configured, skipping pin')
@@ -168,13 +298,7 @@ export async function pinHash(hash: string): Promise<boolean> {
       },
       body: JSON.stringify({
         hashToPin: hash,
-        hostNodes: [
-          {
-            host: "pinata",
-            port: 443,
-            protocol: "https"
-          }
-        ]
+        hostNodes: [{ host: "pinata", port: 443, protocol: "https" }]
       })
     })
 
@@ -183,16 +307,6 @@ export async function pinHash(hash: string): Promise<boolean> {
     console.error('Pin error:', error)
     return false
   }
-}
-
-/**
- * Unpin an IPFS hash
- */
-export async function unpinHash(hash: string): Promise<boolean> {
-  // This would require fetching pinned items and finding the ID
-  // For simplicity, just log a warning
-  console.warn('Unpin requires Pinata API access')
-  return false
 }
 
 /**
@@ -207,73 +321,55 @@ export async function checkIPFSExists(hash: string): Promise<boolean> {
   }
 }
 
-/**
- * Encrypt file content (client-side)
- * Uses Web Crypto API for client-side encryption
- */
-export async function encryptFile(file: File, password: string): Promise<{ encrypted: ArrayBuffer; iv: Uint8Array }> {
-  const encoder = new TextEncoder()
-  const passwordKey = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(password),
-    { name: 'PBKDF2' },
-    false,
-    ['deriveKey']
-  )
+// ─── Encryption Utilities ───────────────────────────────────────────────────────
 
-  const key = await crypto.subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt: crypto.getRandomValues(new Uint8Array(16)),
-      iterations: 100000,
-      hash: 'SHA-256'
-    },
-    passwordKey,
+/**
+ * Encrypt file content (client-side, standalone)
+ * Uses Web Crypto API for AES-256-GCM encryption
+ */
+export async function encryptFile(
+  file: File,
+  keyBase64: string
+): Promise<{ encrypted: ArrayBuffer; iv: Uint8Array }> {
+  const keyData = Uint8Array.from(atob(keyBase64), c => c.charCodeAt(0))
+  const key = await crypto.subtle.importKey(
+    'raw',
+    keyData,
     { name: 'AES-GCM', length: 256 },
     false,
     ['encrypt']
   )
 
   const iv = crypto.getRandomValues(new Uint8Array(12))
+  const fileBuffer = await file.arrayBuffer()
+
   const encrypted = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
     key,
-    await file.arrayBuffer()
+    fileBuffer
   )
 
   return { encrypted, iv }
 }
 
 /**
- * Decrypt file content (client-side)
+ * Decrypt file content (client-side, standalone)
  */
 export async function decryptFile(
   encrypted: ArrayBuffer,
-  password: string,
-  salt: Uint8Array,
-  iv: Uint8Array
+  keyBase64: string,
+  ivBase64: string
 ): Promise<ArrayBuffer> {
-  const encoder = new TextEncoder()
-  const passwordKey = await crypto.subtle.importKey(
+  const keyData = Uint8Array.from(atob(keyBase64), c => c.charCodeAt(0))
+  const key = await crypto.subtle.importKey(
     'raw',
-    encoder.encode(password),
-    { name: 'PBKDF2' },
-    false,
-    ['deriveKey']
-  )
-
-  const key = await crypto.subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt,
-      iterations: 100000,
-      hash: 'SHA-256'
-    },
-    passwordKey,
+    keyData,
     { name: 'AES-GCM', length: 256 },
     false,
     ['decrypt']
   )
+
+  const iv = Uint8Array.from(atob(ivBase64), c => c.charCodeAt(0))
 
   return await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv },
@@ -281,6 +377,24 @@ export async function decryptFile(
     encrypted
   )
 }
+
+/**
+ * Generate a random encryption key (Base64 encoded)
+ */
+export function generateEncryptionKey(): string {
+  const key = crypto.getRandomValues(new Uint8Array(32))
+  return btoa(String.fromCharCode(...key))
+}
+
+/**
+ * Generate a random IV (Base64 encoded)
+ */
+export function generateIV(): string {
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  return btoa(String.fromCharCode(...iv))
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
  * Format file size for display
