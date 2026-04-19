@@ -34,7 +34,7 @@ export interface EncryptedBool {
 
 export type EncryptedValue = EncryptedUint64 | EncryptedUint128 | EncryptedBool
 
-let coFHEInstance: typeof globalThis.cofhe | null = null
+let coFHEInstance: any = null
 let config: CoFHEConfig | null = null
 
 /**
@@ -47,7 +47,6 @@ export async function initCoFHE(cfg: CoFHEConfig): Promise<void> {
   // Check if cofhe library is available
   if (typeof globalThis !== 'undefined' && (globalThis as any).cofhe) {
     coFHEInstance = (globalThis as any).cofhe
-    // await coFHEInstance.init({ network: cfg.network })
   }
 
   console.log('[CoFHE] Initialized for network:', cfg.network)
@@ -137,24 +136,6 @@ export async function decryptValue(encrypted: EncryptedValue): Promise<bigint | 
 }
 
 /**
- * Create an encrypted comparison for access control
- * In production, this runs on-chain using FHE comparison operators
- */
-export function createEncryptedComparison(
-  userInput: EncryptedValue,
-  storedRule: EncryptedValue
-): { comparisonType: 'eq' | 'lt' | 'gt' | 'lte' | 'gte'; encrypted: boolean } {
-  // In production, this would be evaluated on-chain:
-  // FHE.eq(userInput, storedRule), FHE.lt(...), etc.
-  // Results are encrypted and require decryption
-
-  return {
-    comparisonType: 'eq',
-    encrypted: true // Always encrypted in production
-  }
-}
-
-/**
  * Check if the current user is allowed to decrypt
  * In production: cofhe.isAllowed(address) or cofhe.allow(contractAddress)
  */
@@ -184,12 +165,16 @@ export async function requestDecryptPermit(
  */
 export async function encryptAccessCode(code: string): Promise<EncryptedUint64> {
   // Convert access code string to numeric PIN
-  let hash = 0n
+  let hash = BigInt(0)
   for (let i = 0; i < code.length; i++) {
-    hash = (hash << 5n) - hash + BigInt(code.charCodeAt(i))
-    hash = hash & ((1n << 64n) - 1n) // Keep within 64 bits
+    hash = (hash << BigInt(5)) - hash + BigInt(code.charCodeAt(i))
+    // Keep within 64 bits
+    const mask = (BigInt(1) << BigInt(64)) - BigInt(1)
+    hash = hash & mask
   }
-  hash = hash < 0n ? -hash : hash // Absolute value
+  if (hash < BigInt(0)) {
+    hash = -hash
+  }
 
   return encryptUint64(hash)
 }
