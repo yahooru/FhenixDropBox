@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect } from "react"
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi"
 import { Upload, X, Lock, Key, Clock, Download, DollarSign, Eye, EyeOff, Loader2, CheckCircle2, AlertCircle, FileText, ArrowLeft, Plus, Files, EyeOff as BlurIcon, FolderPlus, Link2 } from "lucide-react"
 import Link from "next/link"
-import { FHENIX_DROPBOX_ABI, CONTRACT_ADDRESS, hashPassword } from "@/lib/fhenix"
+import { FHENIX_DROPBOX_ABI, CONTRACT_ADDRESS, hashPassword, ZERO_BYTES32 } from "@/lib/fhenix"
 import { uploadToIPFS } from "@/lib/ipfs"
 import { sepolia } from "wagmi/chains"
 
@@ -180,9 +180,7 @@ export default function UploadPage() {
     setDeploying(true)
 
     try {
-      const passwordHash = accessRules.password
-        ? hashPassword(accessRules.password)
-        : "0x0000000000000000000000000000000000000000"
+      const passwordHash = hashPassword(accessRules.password)
 
       // Deploy first file (for demo)
       const firstFile = uploadedFiles[0]

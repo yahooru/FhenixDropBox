@@ -184,10 +184,13 @@ export const FHENIX_DROPBOX_ABI = [
 
 // ─── Utility Functions ────────────────────────────────────────────────────────
 
+export const ZERO_BYTES32 = "0x0000000000000000000000000000000000000000000000000000000000000000" as const
+
 /**
  * Hash password for storage
  */
 export function hashPassword(password: string): `0x${string}` {
+  if (!password) return ZERO_BYTES32
   const { keccak256 } = require('viem')
   return keccak256(new TextEncoder().encode(password)) as `0x${string}`
 }
