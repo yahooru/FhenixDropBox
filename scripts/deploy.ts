@@ -1,4 +1,5 @@
-import { ethers } from "hardhat";
+import pkg from "hardhat";
+const { ethers } = pkg;
 
 async function main() {
   console.log("Deploying FhenixDropBox contract...");
@@ -15,7 +16,6 @@ async function main() {
   const totalFiles = await contract.totalFiles();
   console.log(`Total files: ${totalFiles}`);
 
-  // Save deployment address
   console.log("\nDeployment successful!");
   console.log(`Contract Address: ${address}`);
   console.log(`Network: Arbitrum Sepolia (Chain ID: 421614)`);
