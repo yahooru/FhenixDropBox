@@ -150,7 +150,6 @@ export default function FhenixDropBoxPage() {
             {/* Desktop links */}
             <div className="hidden md:flex items-center gap-7">
               <Link href="#features" className="text-[11px] text-black/60 hover:text-black transition-colors duration-200 tracking-wide">Features</Link>
-              <Link href="#roadmap" className="text-[11px] text-black/60 hover:text-black transition-colors duration-200 tracking-wide">Roadmap</Link>
               <Link href="#how-it-works" className="text-[11px] text-black/60 hover:text-black transition-colors duration-200 tracking-wide">How it Works</Link>
               <Link href="/dashboard" className="text-[11px] text-black/60 hover:text-black transition-colors duration-200 tracking-wide">Dashboard</Link>
             </div>
