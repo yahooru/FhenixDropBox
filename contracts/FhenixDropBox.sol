@@ -4,12 +4,8 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-/**
- * @title FhenixDropBox
- * @notice Privacy-first decentralized file sharing with encrypted access control.
- * @dev Uses placeholder encrypted types that can be replaced with Fhenix FHE types
- *      when deploying to Fhenix network.
- */
+/// @title FhenixDropBox
+/// @notice Privacy-first decentralized file sharing with encrypted access control.
 contract FhenixDropBox is Ownable, ReentrancyGuard {
 
     // ─── Data Structures ────────────────────────────────────────────────────────
@@ -17,37 +13,32 @@ contract FhenixDropBox is Ownable, ReentrancyGuard {
     struct File {
         string ipfsHash;
         uint256 createdAt;
-        uint256 price;              // Price in smallest unit (e.g., wei for USDC)
+        uint256 price;
         uint256 maxDownloads;
         uint256 downloadCount;
         uint256 expiresAt;
-        bytes32 passwordHash;       // Keccak256 hash of password (placeholder for FHE)
+        bytes32 passwordHash;
         address owner;
         bool isActive;
         bool hasPassword;
     }
 
-    struct AccessRequest {
-        address requester;
-        uint256 fileId;
-        bool granted;
-        uint256 timestamp;
+    struct FileAccessInfo {
+        bool isAuthorized;
+        bool hasDownloaded;
     }
 
     // ─── State Variables ────────────────────────────────────────────────────────
 
-    // File storage
     mapping(uint256 => File) public files;
     mapping(address => uint256[]) public userFiles;
     mapping(uint256 => mapping(address => bool)) public authorizedUsers;
     mapping(uint256 => mapping(address => bool)) public downloadHistory;
 
-    // Statistics
     uint256 public totalFiles;
     uint256 public totalDownloads;
-    uint256 public totalVolume;      // Total volume in wei/USDC
+    uint256 public totalVolume;
 
-    // Access control
     mapping(address => bool) public authorizedFileCreator;
 
     // ─── Events ────────────────────────────────────────────────────────────────
@@ -72,14 +63,9 @@ contract FhenixDropBox is Ownable, ReentrancyGuard {
         address indexed owner
     );
 
-    event AccessRevoked(
-        uint256 indexed fileId,
-        address indexed user
-    );
-
-    event FileDeactivated(
-        uint256 indexed fileId
-    );
+    event FileDeactivated(uint256 indexed fileId);
+    event FileReactivated(uint256 indexed fileId);
+    event AccessRevoked(uint256 indexed fileId, address indexed user);
 
     // ─── Modifiers ─────────────────────────────────────────────────────────────
 
@@ -106,11 +92,9 @@ contract FhenixDropBox is Ownable, ReentrancyGuard {
     }
 
     modifier hasDownloadsLeft(uint256 fileId) {
-        if (files[fileId].maxDownloads > 0) {
-            require(
-                files[fileId].downloadCount < files[fileId].maxDownloads,
-                "No downloads remaining"
-            );
+        uint256 max = files[fileId].maxDownloads;
+        if (max > 0) {
+            require(files[fileId].downloadCount < max, "No downloads remaining");
         }
         _;
     }
@@ -123,28 +107,23 @@ contract FhenixDropBox is Ownable, ReentrancyGuard {
 
     // ─── File Management ──────────────────────────────────────────────────────
 
-    /**
-     * @dev Upload a new file with encrypted access rules
-     *      In production Fhenix implementation, price and other values
-     *      would be encrypted types
-     *
-     * @param ipfsHash_ IPFS content identifier
-     * @param price_ Access price (placeholder - would be euint64 in FHE)
-     * @param maxDownloads_ Maximum number of downloads allowed (0 = unlimited)
-     * @param expiryDays_ Number of days until expiry (0 = never expires)
-     * @param passwordHash_ Hash of password (empty = no password)
-     */
+    /// @notice Upload a new file with encrypted access rules
+    /// @param ipfsHash_ IPFS content identifier
+    /// @param price_ Access price in wei
+    /// @param maxDownloads_ Max downloads (0 = unlimited)
+    /// @param expiryDays_ Days until expiry (0 = never)
+    /// @param passwordHash_ Hash of password (empty = no password)
+    /// @return fileId The ID of the uploaded file
     function uploadFile(
         string calldata ipfsHash_,
         uint256 price_,
         uint256 maxDownloads_,
         uint256 expiryDays_,
         bytes32 passwordHash_
-    ) external returns (uint256) {
+    ) external returns (uint256 fileId) {
         require(bytes(ipfsHash_).length > 0, "IPFS hash required");
-        require(price_ >= 0, "Price cannot be negative");
 
-        uint256 fileId = totalFiles++;
+        fileId = totalFiles++;
         uint256 expiresAt = expiryDays_ > 0
             ? block.timestamp + (expiryDays_ * 1 days)
             : 0;
@@ -164,137 +143,112 @@ contract FhenixDropBox is Ownable, ReentrancyGuard {
 
         userFiles[msg.sender].push(fileId);
 
-        emit FileUploaded(fileId, msg.sender, ipfsHash_, price_, passwordHash_ != bytes32(0));
-
-        return fileId;
+        emit FileUploaded(fileId, msg.sender, ipfsHash_, price_, files[fileId].hasPassword);
     }
 
-    /**
-     * @dev Request access to a file (payment verification would happen here)
-     *
-     * In production FHE implementation:
-     * - Price comparison would happen on encrypted values
-     * - Payment verification would be private
-     */
-    function requestAccess(
-        uint256 fileId
-    ) external payable fileExists(fileId) fileActive(fileId) notExpired(fileId) hasDownloadsLeft(fileId) nonReentrant {
+    /// @notice Request access to a file
+    function requestAccess(uint256 fileId) external payable
+        fileExists(fileId) fileActive(fileId) notExpired(fileId) hasDownloadsLeft(fileId) nonReentrant
+    {
         File storage file = files[fileId];
 
-        // If file has a price, verify payment
         if (file.price > 0) {
             require(msg.value >= file.price, "Insufficient payment");
 
-            // Transfer payment to owner (minus platform fee if applicable)
-            uint256 ownerPayment = file.price;
-            (bool success, ) = file.owner.call{value: ownerPayment}("");
+            (bool success, ) = file.owner.call{value: file.price}("");
             require(success, "Payment transfer failed");
 
             totalVolume += file.price;
         }
 
-        // Grant access
         authorizedUsers[fileId][msg.sender] = true;
-
         emit FileAccessed(fileId, msg.sender, file.price);
     }
 
-    /**
-     * @dev Verify password for a file with password protection
-     *      In FHE implementation, this would use encrypted comparison
-     */
-    function verifyPassword(
-        uint256 fileId,
-        string calldata password
-    ) external view fileExists(fileId) fileActive(fileId) returns (bool) {
+    /// @notice Verify password for a protected file
+    function verifyPassword(uint256 fileId, string calldata password) external view
+        fileExists(fileId) fileActive(fileId) returns (bool)
+    {
         File storage file = files[fileId];
-
-        if (!file.hasPassword) {
-            return true; // No password required
-        }
-
+        if (!file.hasPassword) return true;
         return keccak256(abi.encodePacked(password)) == file.passwordHash;
     }
 
-    /**
-     * @dev Download a file after access has been granted
-     */
-    function downloadFile(
-        uint256 fileId
-    ) external fileExists(fileId) fileActive(fileId) notExpired(fileId) hasDownloadsLeft(fileId) nonReentrant {
-        File storage file = files[fileId];
-
-        // Verify access has been granted
+    /// @notice Download a file after access is granted
+    function downloadFile(uint256 fileId) external
+        fileExists(fileId) fileActive(fileId) notExpired(fileId) hasDownloadsLeft(fileId) nonReentrant
+    {
         require(authorizedUsers[fileId][msg.sender], "Access not granted");
 
-        // Check password if required (this is a simplified check)
-        // In production, password verification would happen during requestAccess
-
-        // Increment download count
+        File storage file = files[fileId];
         file.downloadCount++;
         totalDownloads++;
-
-        // Record download history
         downloadHistory[fileId][msg.sender] = true;
 
         emit FileDownloaded(fileId, msg.sender, file.owner);
     }
 
-    /**
-     * @dev Get file details including access status for caller
-     */
-    function getFileDetails(uint256 fileId) external view returns (
+    /// @notice Get file basic info
+    function getFileInfo(uint256 fileId) external view fileExists(fileId) returns (
         string memory ipfsHash,
         uint256 createdAt,
         uint256 price,
         uint256 maxDownloads,
         uint256 downloadCount,
-        uint256 expiresAt,
         bool isActive,
-        bool hasPassword,
+        bool hasPassword
+    ) {
+        File storage f = files[fileId];
+        return (
+            f.ipfsHash,
+            f.createdAt,
+            f.price,
+            f.maxDownloads,
+            f.downloadCount,
+            f.isActive,
+            f.hasPassword
+        );
+    }
+
+    /// @notice Get file expiry time
+    function getFileExpiry(uint256 fileId) external view fileExists(fileId) returns (uint256) {
+        return files[fileId].expiresAt;
+    }
+
+    /// @notice Get access info for caller
+    function getAccessInfo(uint256 fileId) external view fileExists(fileId) returns (
         bool isAuthorized,
         bool hasDownloaded
     ) {
-        File storage file = files[fileId];
         return (
-            file.ipfsHash,
-            file.createdAt,
-            file.price,           // In FHE, this would be encrypted
-            file.maxDownloads,    // In FHE, this would be encrypted
-            file.downloadCount,
-            file.expiresAt,       // In FHE, this would be encrypted
-            file.isActive,
-            file.hasPassword,
             authorizedUsers[fileId][msg.sender],
             downloadHistory[fileId][msg.sender]
         );
     }
 
-    /**
-     * @dev Get files owned by the caller
-     */
+    /// @notice Get file owner
+    function getFileOwner(uint256 fileId) external view fileExists(fileId) returns (address) {
+        return files[fileId].owner;
+    }
+
+    /// @notice Get files owned by caller
     function getMyFiles() external view returns (uint256[] memory) {
         return userFiles[msg.sender];
     }
 
-    /**
-     * @dev Deactivate a file (doesn't delete, just makes inaccessible)
-     */
+    /// @notice Deactivate a file
     function deactivateFile(uint256 fileId) external onlyFileOwner(fileId) {
         files[fileId].isActive = false;
         emit FileDeactivated(fileId);
     }
 
-    /**
-     * @dev Reactivate a file
-     */
+    /// @notice Reactivate a file
     function reactivateFile(uint256 fileId) external onlyFileOwner(fileId) {
         files[fileId].isActive = true;
+        emit FileReactivated(fileId);
     }
 
-    /**
-     * @dev Update file access rules
-     */
+    /// @notice Update file access rules
     function updateFileRules(
         uint256 fileId,
         uint256 newPrice,
@@ -302,18 +256,14 @@ contract FhenixDropBox is Ownable, ReentrancyGuard {
         uint256 newExpiryDays
     ) external onlyFileOwner(fileId) {
         File storage file = files[fileId];
-
         file.price = newPrice;
         file.maxDownloads = newMaxDownloads;
-
         if (newExpiryDays > 0) {
             file.expiresAt = block.timestamp + (newExpiryDays * 1 days);
         }
     }
 
-    /**
-     * @dev Get platform statistics
-     */
+    /// @notice Get platform statistics
     function getStats() external view returns (
         uint256 _totalFiles,
         uint256 _totalDownloads,
@@ -328,56 +278,45 @@ contract FhenixDropBox is Ownable, ReentrancyGuard {
         );
     }
 
+    /// @notice Revoke user access
+    function revokeAccess(uint256 fileId, address user) external onlyFileOwner(fileId) {
+        authorizedUsers[fileId][user] = false;
+        emit AccessRevoked(fileId, user);
+    }
+
     // ─── Owner Functions ────────────────────────────────────────────────────────
 
-    /**
-     * @dev Authorize a new file creator (for access control)
-     */
+    /// @notice Authorize a new file creator
     function authorizeCreator(address creator) external onlyOwner {
         authorizedFileCreator[creator] = true;
     }
 
-    /**
-     * @dev Revoke creator authorization
-     */
+    /// @notice Revoke creator authorization
     function revokeCreator(address creator) external onlyOwner {
         authorizedFileCreator[creator] = false;
     }
 
-    /**
-     * @dev Withdraw contract balance (for platform fees)
-     */
+    /// @notice Withdraw contract balance
     function withdraw() external onlyOwner {
         payable(owner()).transfer(address(this).balance);
     }
 
-    // ─── View Functions (FHE Placeholders) ────────────────────────────────────
-
-    /**
-     * @dev These functions demonstrate where FHE encrypted values would be used
-     *      In a production FHE implementation, return types would be encrypted types
-     */
-
-    function getEncryptedPrice(uint256 fileId) external view returns (uint256) {
-        return files[fileId].price; // Would return encrypted euint64 in FHE
+    /// @notice Get remaining downloads for a file
+    function getRemainingDownloads(uint256 fileId) external view fileExists(fileId) returns (uint256) {
+        File storage f = files[fileId];
+        if (f.maxDownloads == 0) return type(uint256).max;
+        if (f.downloadCount >= f.maxDownloads) return 0;
+        return f.maxDownloads - f.downloadCount;
     }
 
-    function getEncryptedMaxDownloads(uint256 fileId) external view returns (uint256) {
-        return files[fileId].maxDownloads; // Would return encrypted euint64 in FHE
+    /// @notice Check if file is expired
+    function isFileExpired(uint256 fileId) external view fileExists(fileId) returns (bool) {
+        uint256 exp = files[fileId].expiresAt;
+        return exp > 0 && block.timestamp >= exp;
     }
 
-    function getEncryptedExpiryTime(uint256 fileId) external view returns (uint256) {
-        return files[fileId].expiresAt; // Would return encrypted euint64 in FHE
-    }
-
-    /**
-     * @dev Compare encrypted values (placeholder for FHE operations)
-     *      In production, this would compare encrypted euint64 values
-     */
-    function compareEncryptedValues(
-        uint256 a,
-        uint256 b
-    ) external pure returns (bool) {
-        return a == b; // FHE would handle this on encrypted data
+    /// @notice Get contract balance
+    function getBalance() external view returns (uint256) {
+        return address(this).balance;
     }
 }
