@@ -3,7 +3,7 @@
 import React, { useRef, useEffect, useState, useCallback } from "react"
 import Link from "next/link"
 import { useAccount, useConnect, useDisconnect } from "wagmi"
-import { Shield, Lock, Key, Upload, Database, Eye, EyeOff, CheckCircle2, Clock, Users, FileText, ChevronDown } from "lucide-react"
+import { Shield, Lock, Key, Upload, Database, Eye, EyeOff, CheckCircle2, Clock, Users, FileText, ChevronDown, Zap, FolderPlus, Link2, EyeOff, Download, Share2, Settings, Code, Globe, CreditCard } from "lucide-react"
 import { IntroAnimation, INTRO_DURATION_MS, HERO_REVEAL_MS } from "@/components/intro-animation"
 
 // ─── Intersection Observer hook ──────────────────────────────────────────────
@@ -99,48 +99,53 @@ function WalletButton() {
   )
 }
 
-// ─── Feature Card ─────────────────────────────────────────────────────────────
-function FeatureCard({ icon: Icon, title, description, delay = 0 }: { icon: any; title: string; description: string; delay?: number }) {
-  const { ref, inView } = useInView(0.1)
-  return (
-    <div
-      ref={ref}
-      className="p-6 rounded-2xl border border-black/[0.07] bg-white hover:border-black/[0.12] hover:shadow-lg transition-all duration-300"
-      style={{
-        opacity: inView ? 1 : 0,
-        transform: inView ? "translateY(0)" : "translateY(20px)",
-        transition: `opacity 0.5s ease ${delay}ms, transform 0.5s ease ${delay}ms`,
-      }}
-    >
-      <div className="w-12 h-12 rounded-xl bg-black/[0.04] flex items-center justify-center mb-4">
-        <Icon className="w-5 h-5 text-black/60" />
-      </div>
-      <h3 className="text-lg font-light mb-2">{title}</h3>
-      <p className="text-sm text-black/45 leading-relaxed">{description}</p>
-    </div>
-  )
-}
+// ─── Roadmap Feature Item ────────────────────────────────────────────────────
+function RoadmapFeature({ icon: Icon, title, description, wave, available = false }: {
+  icon: any; title: string; description: string; wave: number; available?: boolean
+}) {
+  const [showTooltip, setShowTooltip] = useState(false)
 
-// ─── Step Card ──────────────────────────────────────────────────────────────
-function StepCard({ number, title, description, delay = 0 }: { number: string; title: string; description: string; delay?: number }) {
-  const { ref, inView } = useInView(0.1)
+  const waveColors = {
+    1: { bg: "bg-emerald-500", text: "Wave 1" },
+    2: { bg: "bg-blue-500", text: "Wave 2" },
+    3: { bg: "bg-purple-500", text: "Wave 3" },
+    4: { bg: "bg-amber-500", text: "Wave 4" },
+    5: { bg: "bg-pink-500", text: "Wave 5" },
+  }
+
+  const wave = wave as keyof typeof waveColors
+
   return (
-    <div
-      ref={ref}
-      className="flex gap-4"
-      style={{
-        opacity: inView ? 1 : 0,
-        transform: inView ? "translateY(0)" : "translateY(20px)",
-        transition: `opacity 0.5s ease ${delay}ms, transform 0.5s ease ${delay}ms`,
-      }}
-    >
-      <div className="w-12 h-12 rounded-full bg-[#111] text-white flex items-center justify-center text-sm font-medium shrink-0">
-        {number}
+    <div className="relative">
+      <div
+        className={`flex items-center gap-4 p-4 rounded-xl border transition-all ${
+          available
+            ? "border-emerald-200 bg-emerald-50/50"
+            : "border-black/[0.07] hover:border-black/[0.12] hover:bg-black/[0.02]"
+        }`}
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+      >
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+          available ? "bg-emerald-100" : "bg-black/[0.05]"
+        }`}>
+          <Icon className={`w-5 h-5 ${available ? "text-emerald-600" : "text-black/40"}`} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium">{title}</div>
+          <div className="text-xs text-black/50 line-clamp-1">{description}</div>
+        </div>
+        <span className={`px-2 py-1 rounded text-xs text-white ${waveColors[wave].bg}`}>
+          {waveColors[wave].text}
+        </span>
       </div>
-      <div>
-        <h3 className="text-lg font-light mb-1">{title}</h3>
-        <p className="text-sm text-black/45 leading-relaxed">{description}</p>
-      </div>
+      {showTooltip && !available && (
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-4 py-3 bg-[#111] text-white text-xs rounded-xl whitespace-nowrap z-50">
+          <div className="text-white font-medium mb-1">{title}</div>
+          <div className="text-white/70">Available in {waveColors[wave].text}</div>
+          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#111]" />
+        </div>
+      )}
     </div>
   )
 }
@@ -166,6 +171,40 @@ export default function FhenixDropBoxPage() {
     const rect = el.getBoundingClientRect()
     el.style.setProperty("--mouse-x", `${e.clientX - rect.left}px`)
     el.style.setProperty("--mouse-y", `${e.clientY - rect.top}px`)
+  }
+
+  // Roadmap features organized by wave
+  const roadmapFeatures = {
+    1: [
+      { icon: Lock, title: "Encrypted Access Rules", description: "Prices, passwords, limits hidden on-chain", available: true },
+      { icon: Database, title: "IPFS Storage", description: "Decentralized file storage", available: true },
+      { icon: Shield, title: "Privacy Protection", description: "No data exposed publicly", available: true },
+      { icon: Upload, title: "File Upload", description: "Upload files with access control", available: true },
+    ],
+    2: [
+      { icon: Eye, title: "File Preview", description: "Preview PDFs and images before purchase", wave: 2 },
+      { icon: FolderPlus, title: "Multi-File Upload", description: "Upload up to 10 files at once", wave: 2 },
+      { icon: Link2, title: "Link Expiry", description: "24h / 7d / 30d expiration", wave: 2 },
+      { icon: Download, title: "Batch Downloads", description: "Download multiple files", wave: 2 },
+    ],
+    3: [
+      { icon: FolderPlus, title: "Folder Organization", description: "Organize files in folders", wave: 3 },
+      { icon: Settings, title: "API Access", description: "Developer API for integrations", wave: 3 },
+      { icon: Code, title: "Webhooks", description: "Real-time event notifications", wave: 3 },
+      { icon: Globe, title: "CDN Distribution", description: "Fast global file delivery", wave: 3 },
+    ],
+    4: [
+      { icon: Users, title: "Team Collaboration", description: "Share folders with teams", wave: 4 },
+      { icon: Shield, title: "Advanced Permissions", description: "Granular access control", wave: 4 },
+      { icon: CreditCard, title: "Subscriptions", description: "Recurring payments", wave: 4 },
+      { icon: Share2, title: "Social Sharing", description: "Share to social platforms", wave: 4 },
+    ],
+    5: [
+      { icon: Globe, title: "Mobile App", description: "iOS and Android apps", wave: 5 },
+      { icon: Database, title: "Desktop Sync", description: "Sync files across devices", wave: 5 },
+      { icon: Code, title: "Browser Extension", description: "Quick share from browser", wave: 5 },
+      { icon: Zap, title: "Instant Transfers", description: "Real-time P2P sharing", wave: 5 },
+    ],
   }
 
   return (
@@ -196,8 +235,8 @@ export default function FhenixDropBoxPage() {
             {/* Desktop links */}
             <div className="hidden md:flex items-center gap-7">
               <Link href="#features" className="text-[11px] text-black/60 hover:text-black transition-colors duration-200 tracking-wide">Features</Link>
+              <Link href="#roadmap" className="text-[11px] text-black/60 hover:text-black transition-colors duration-200 tracking-wide">Roadmap</Link>
               <Link href="#how-it-works" className="text-[11px] text-black/60 hover:text-black transition-colors duration-200 tracking-wide">How it Works</Link>
-              <Link href="#security" className="text-[11px] text-black/60 hover:text-black transition-colors duration-200 tracking-wide">Security</Link>
               <Link href="/dashboard" className="text-[11px] text-black/60 hover:text-black transition-colors duration-200 tracking-wide">Dashboard</Link>
             </div>
 
@@ -264,11 +303,11 @@ export default function FhenixDropBoxPage() {
               Start Sharing
             </Link>
             <Link
-              href="#how-it-works"
+              href="#roadmap"
               className="px-6 py-3 rounded-xl border border-black/10 text-black/70 text-sm hover:border-black/20 hover:text-black transition-colors flex items-center gap-2"
             >
               <Lock className="w-4 h-4" />
-              Learn More
+              View Roadmap
             </Link>
           </div>
 
@@ -296,8 +335,98 @@ export default function FhenixDropBoxPage() {
         </div>
       </section>
 
+      {/* ── ROADMAP ──────────────────────────────────────────────────────── */}
+      <section id="roadmap" className="py-32 px-6 md:px-12 lg:px-20 border-t border-black/[0.06]">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-16">
+            <Tag>DEVELOPMENT ROADMAP</Tag>
+            <h2 className="mt-5 text-4xl md:text-5xl font-light tracking-tight leading-[1.05]">
+              Building the future of<br />private file sharing.
+            </h2>
+            <p className="mt-4 text-sm text-black/50 max-w-xl mx-auto">
+              Hover over features to see which wave they'll be available in.
+            </p>
+          </div>
+
+          {/* Wave Legend */}
+          <div className="flex flex-wrap justify-center gap-3 mb-12">
+            {[
+              { wave: 1, color: "bg-emerald-500", label: "Wave 1 - Available Now", current: true },
+              { wave: 2, color: "bg-blue-500", label: "Wave 2 - Q2 2024" },
+              { wave: 3, color: "bg-purple-500", label: "Wave 3 - Q3 2024" },
+              { wave: 4, color: "bg-amber-500", label: "Wave 4 - Q4 2024" },
+              { wave: 5, color: "bg-pink-500", label: "Wave 5 - 2025" },
+            ].map((item) => (
+              <div key={item.wave} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-black/[0.07]">
+                <span className={`w-2 h-2 rounded-full ${item.color}`} />
+                <span className="text-xs text-black/60">{item.label}</span>
+                {item.current && <span className="text-xs text-emerald-600 font-medium">(Live)</span>}
+              </div>
+            ))}
+          </div>
+
+          {/* Features by Wave */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4" onMouseMove={handleMouse}>
+            {/* Wave 1 - Available */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 px-3 py-2 bg-emerald-500 text-white rounded-lg">
+                <span className="text-xs font-medium">Wave 1</span>
+                <span className="text-xs opacity-75">Available Now</span>
+              </div>
+              {roadmapFeatures[1].map((feature, i) => (
+                <RoadmapFeature key={i} {...feature} available />
+              ))}
+            </div>
+
+            {/* Wave 2 */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 px-3 py-2 bg-blue-500 text-white rounded-lg">
+                <span className="text-xs font-medium">Wave 2</span>
+                <span className="text-xs opacity-75">Coming Soon</span>
+              </div>
+              {roadmapFeatures[2].map((feature, i) => (
+                <RoadmapFeature key={i} {...feature} />
+              ))}
+            </div>
+
+            {/* Wave 3 */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 px-3 py-2 bg-purple-500 text-white rounded-lg">
+                <span className="text-xs font-medium">Wave 3</span>
+                <span className="text-xs opacity-75">Planned</span>
+              </div>
+              {roadmapFeatures[3].map((feature, i) => (
+                <RoadmapFeature key={i} {...feature} />
+              ))}
+            </div>
+
+            {/* Wave 4 */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 px-3 py-2 bg-amber-500 text-white rounded-lg">
+                <span className="text-xs font-medium">Wave 4</span>
+                <span className="text-xs opacity-75">Planned</span>
+              </div>
+              {roadmapFeatures[4].map((feature, i) => (
+                <RoadmapFeature key={i} {...feature} />
+              ))}
+            </div>
+
+            {/* Wave 5 */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 px-3 py-2 bg-pink-500 text-white rounded-lg">
+                <span className="text-xs font-medium">Wave 5</span>
+                <span className="text-xs opacity-75">Future</span>
+              </div>
+              {roadmapFeatures[5].map((feature, i) => (
+                <RoadmapFeature key={i} {...feature} />
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ── PLATFORM OVERVIEW (bento) ──────────────────────────────────────── */}
-      <section id="features" className="py-32 px-6 md:px-12 lg:px-20">
+      <section id="features" className="py-32 px-6 md:px-12 lg:px-20 border-t border-black/[0.06]">
         <div className="max-w-6xl mx-auto">
           <div className="mb-16">
             <Tag>PLATFORM</Tag>
@@ -399,96 +528,6 @@ export default function FhenixDropBoxPage() {
         </div>
       </section>
 
-      {/* ── SECURITY ──────────────────────────────────────────────────────── */}
-      <section id="security" className="py-32 px-6 md:px-12 lg:px-20 border-t border-black/[0.06]">
-        <div className="max-w-6xl mx-auto">
-          <div className="mb-16">
-            <Tag>SECURITY</Tag>
-            <h2 className="mt-5 text-4xl md:text-5xl font-light tracking-tight leading-[1.05]">
-              Why privacy matters.
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <BentoCard className="p-8" delay={0}>
-              <div className="w-10 h-10 rounded-xl border border-red-200 flex items-center justify-center mb-4">
-                <Eye className="w-5 h-5 text-red-500" />
-              </div>
-              <h3 className="text-lg font-light mb-3">Traditional Web3</h3>
-              <ul className="space-y-2 text-sm text-black/45">
-                <li className="flex items-center gap-2">
-                  <div className="w-1 h-1 rounded-full bg-red-400 shrink-0" />
-                  File prices are public
-                </li>
-                <li className="flex items-center gap-2">
-                  <div className="w-1 h-1 rounded-full bg-red-400 shrink-0" />
-                  Access logs are visible
-                </li>
-                <li className="flex items-center gap-2">
-                  <div className="w-1 h-1 rounded-full bg-red-400 shrink-0" />
-                  Passwords exposed
-                </li>
-                <li className="flex items-center gap-2">
-                  <div className="w-1 h-1 rounded-full bg-red-400 shrink-0" />
-                  Download limits visible
-                </li>
-              </ul>
-            </BentoCard>
-
-            <BentoCard className="p-8" delay={100}>
-              <div className="w-10 h-10 rounded-xl border border-emerald-200 flex items-center justify-center mb-4">
-                <Shield className="w-5 h-5 text-emerald-600" />
-              </div>
-              <h3 className="text-lg font-light mb-3">FhenixDropBox</h3>
-              <ul className="space-y-2 text-sm text-black/45">
-                <li className="flex items-center gap-2">
-                  <div className="w-1 h-1 rounded-full bg-emerald-500 shrink-0" />
-                  Prices encrypted with FHE
-                </li>
-                <li className="flex items-center gap-2">
-                  <div className="w-1 h-1 rounded-full bg-emerald-500 shrink-0" />
-                  Access logs completely private
-                </li>
-                <li className="flex items-center gap-2">
-                  <div className="w-1 h-1 rounded-full bg-emerald-500 shrink-0" />
-                  Passwords never exposed
-                </li>
-                <li className="flex items-center gap-2">
-                  <div className="w-1 h-1 rounded-full bg-emerald-500 shrink-0" />
-                  Download limits hidden
-                </li>
-              </ul>
-            </BentoCard>
-          </div>
-        </div>
-      </section>
-
-      {/* ── USE CASES ─────────────────────────────────────────────────────── */}
-      <section className="py-32 px-6 md:px-12 lg:px-20 border-t border-black/[0.06] bg-white">
-        <div className="max-w-6xl mx-auto">
-          <div className="mb-16">
-            <Tag>USE CASES</Tag>
-            <h2 className="mt-5 text-4xl md:text-5xl font-light tracking-tight leading-[1.05]">
-              Built for real-world privacy.
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4" onMouseMove={handleMouse}>
-            {[
-              { icon: FileText, title: "Legal Documents", desc: "Share sensitive legal files with clients securely" },
-              { icon: Users, title: "Enterprise Data", desc: "Distribute internal data without exposure" },
-              { icon: Lock, title: "Private Content", desc: "Monetize content with confidential pricing" },
-            ].map((item, i) => (
-              <BentoCard key={i} className="p-6" delay={i * 80}>
-                <item.icon className="w-6 h-6 text-black/40 mb-4" />
-                <h3 className="text-base font-light mb-2">{item.title}</h3>
-                <p className="text-sm text-black/45">{item.desc}</p>
-              </BentoCard>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* ── PRIVACY BADGES ─────────────────────────────────────────────────── */}
       <section className="py-16 px-6 border-t border-black/[0.06]">
         <div className="max-w-5xl mx-auto">
@@ -580,8 +619,8 @@ export default function FhenixDropBoxPage() {
 
           <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
             <Link href="#features" className="text-xs text-black/35 hover:text-black/70 transition-colors tracking-widest">Features</Link>
+            <Link href="#roadmap" className="text-xs text-black/35 hover:text-black/70 transition-colors tracking-widest">Roadmap</Link>
             <Link href="#how-it-works" className="text-xs text-black/35 hover:text-black/70 transition-colors tracking-widest">How it Works</Link>
-            <Link href="#security" className="text-xs text-black/35 hover:text-black/70 transition-colors tracking-widest">Security</Link>
             <Link href="/dashboard" className="text-xs text-black/35 hover:text-black/70 transition-colors tracking-widest">Dashboard</Link>
           </div>
 
