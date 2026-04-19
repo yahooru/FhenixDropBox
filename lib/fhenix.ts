@@ -4,7 +4,6 @@
  * Utilities for interacting with FhenixDropBox smart contract on Sepolia.
  */
 
-import { 0x4a69Db2288Bb9868Bf6eB87FFBcfaeebB51231e8 } from 'viem'
 import { sepolia, arbitrumSepolia } from 'wagmi/chains'
 
 // Contract address
