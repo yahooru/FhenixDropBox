@@ -1,9 +1,12 @@
 "use client"
 
 import { useState, useCallback } from "react"
-import { useAccount } from "wagmi"
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract } from "wagmi"
 import { Upload, X, Lock, Key, Clock, Download, DollarSign, Users, Eye, EyeOff, Loader2, CheckCircle2, AlertCircle, FileText } from "lucide-react"
 import Link from "next/link"
+import { FHENIX_DROPBOX_ABI, CONTRACT_ADDRESS, hashPassword } from "@/lib/fhenix"
+import { uploadToIPFS } from "@/lib/ipfs"
+import { sepolia } from "wagmi/chains"
 
 interface FileData {
   file: File | null
@@ -24,7 +27,7 @@ interface AccessRules {
 }
 
 export default function UploadPage() {
-  const { address, isConnected } = useAccount()
+  const { address, isConnected, chain } = useAccount()
   const [dragActive, setDragActive] = useState(false)
   const [fileData, setFileData] = useState<FileData>({
     file: null,
@@ -46,6 +49,7 @@ export default function UploadPage() {
   const [deploying, setDeploying] = useState(false)
   const [deployed, setDeployed] = useState(false)
   const [shareLink, setShareLink] = useState<string | null>(null)
+  const [fileId, setFileId] = useState<number | null>(null)
 
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return "0 Bytes"
@@ -86,17 +90,35 @@ export default function UploadPage() {
       uploaded: false,
       error: null,
     })
+  }
 
-    // Simulate IPFS upload
-    setTimeout(() => {
-      setFileData((prev) => ({
+  // Upload to IPFS
+  const handleUploadToIPFS = async () => {
+    if (!fileData.file) return
+
+    try {
+      const result = await uploadToIPFS(fileData.file)
+      setFileData(prev => ({
         ...prev,
-        ipfsHash: "Qm" + Math.random().toString(36).substring(2, 15),
+        ipfsHash: result.hash,
         uploading: false,
         uploaded: true,
       }))
-    }, 2000)
+    } catch (error) {
+      setFileData(prev => ({
+        ...prev,
+        uploading: false,
+        error: "Failed to upload to IPFS",
+      }))
+    }
   }
+
+  // Trigger IPFS upload when file is selected
+  useState(() => {
+    if (fileData.file && fileData.uploading && !fileData.ipfsHash) {
+      handleUploadToIPFS()
+    }
+  })
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -116,20 +138,51 @@ export default function UploadPage() {
     })
   }
 
+  // Contract write
+  const { writeContract, data: txHash, isPending, error: writeError } = useWriteContract()
+
   const handleDeploy = async () => {
-    if (!fileData.uploaded || !address) return
+    if (!fileData.uploaded || !fileData.ipfsHash || !address) return
 
     setDeploying(true)
 
-    // Simulate blockchain transaction
-    await new Promise((resolve) => setTimeout(resolve, 3000))
+    try {
+      const passwordHash = accessRules.password ? hashPassword(accessRules.password) : "0x0000000000000000000000000000000000000000"
 
-    // Generate share link
-    const linkId = Math.random().toString(36).substring(2, 10)
-    setShareLink(`${window.location.origin}/share/${linkId}`)
-    setDeployed(true)
-    setDeploying(false)
+      writeContract({
+        address: CONTRACT_ADDRESS as `0x${string}`,
+        abi: FHENIX_DROPBOX_ABI,
+        functionName: 'uploadFile',
+        args: [
+          fileData.ipfsHash,
+          BigInt(parseFloat(accessRules.price) * 1e6), // Convert USDC to wei
+          BigInt(accessRules.maxDownloads || "0"),
+          BigInt(accessRules.expiryDays || "0"),
+          passwordHash as `0x${string}`
+        ],
+        chainId: sepolia.id,
+      })
+    } catch (error) {
+      console.error("Deploy error:", error)
+      setDeploying(false)
+    }
   }
+
+  // Wait for transaction
+  const { isLoading: isWaiting, isSuccess } = useWaitForTransactionReceipt({
+    hash: txHash,
+  })
+
+  // Handle transaction success
+  useState(() => {
+    if (isSuccess && txHash) {
+      // Generate share link
+      const linkId = Math.random().toString(36).substring(2, 10)
+      setShareLink(`${window.location.origin}/share/${linkId}`)
+      setDeployed(true)
+      setDeploying(false)
+    }
+  }, [isSuccess, txHash])
 
   if (!isConnected) {
     return (
@@ -153,6 +206,14 @@ export default function UploadPage() {
         <p className="text-sm text-black/50 mt-1">
           Upload a file and set private access rules. Everything will be encrypted.
         </p>
+      </div>
+
+      {/* Network Status */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center gap-3">
+        <div className={`w-2 h-2 rounded-full ${chain?.id === sepolia.id ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+        <span className="text-sm text-blue-700">
+          Connected to {chain?.name || 'Unknown Network'}
+        </span>
       </div>
 
       {/* File Upload Area */}
@@ -226,7 +287,10 @@ export default function UploadPage() {
           </div>
           <div className="flex items-center gap-2 bg-black/[0.03] rounded-lg p-3">
             <code className="text-xs text-black/60 flex-1 break-all">{fileData.ipfsHash}</code>
-            <button className="text-xs text-black/40 hover:text-black transition-colors">
+            <button
+              onClick={() => navigator.clipboard.writeText(fileData.ipfsHash || '')}
+              className="text-xs text-black/40 hover:text-black transition-colors"
+            >
               Copy
             </button>
           </div>
@@ -343,16 +407,24 @@ export default function UploadPage() {
             </div>
           </div>
 
+          {/* Error */}
+          {writeError && (
+            <div className="flex items-center gap-2 p-3 bg-red-50 text-red-600 rounded-lg text-sm">
+              <AlertCircle className="w-4 h-4" />
+              {writeError.message || "Transaction failed"}
+            </div>
+          )}
+
           {/* Deploy Button */}
           <button
             onClick={handleDeploy}
-            disabled={deploying}
+            disabled={deploying || isPending || isWaiting}
             className="w-full py-4 rounded-xl bg-[#111] text-white text-sm font-medium hover:bg-[#333] transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {deploying ? (
+            {isPending || isWaiting ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Deploying to Fhenix...
+                {isPending ? "Confirm in wallet..." : "Waiting for confirmation..."}
               </>
             ) : (
               <>
@@ -379,15 +451,35 @@ export default function UploadPage() {
             <div className="text-xs text-black/40 mb-2">Share Link</div>
             <div className="flex items-center gap-2">
               <code className="text-sm flex-1 break-all">{shareLink}</code>
-              <button className="px-3 py-1.5 rounded-lg bg-[#111] text-white text-xs">
+              <button
+                onClick={() => navigator.clipboard.writeText(shareLink)}
+                className="px-3 py-1.5 rounded-lg bg-[#111] text-white text-xs"
+              >
                 Copy
               </button>
             </div>
           </div>
 
+          {txHash && (
+            <div className="bg-black/[0.03] rounded-xl p-4 mb-6">
+              <div className="text-xs text-black/40 mb-2">Transaction Hash</div>
+              <div className="flex items-center gap-2">
+                <code className="text-xs flex-1 break-all">{txHash}</code>
+                <a
+                  href={`https://sepolia.etherscan.io/tx/${txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-600 hover:underline"
+                >
+                  View on Etherscan
+                </a>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center justify-center gap-2 text-xs text-emerald-600 mb-6">
             <Lock className="w-3 h-3" />
-            Access rules are encrypted on Fhenix
+            Access rules are encrypted on Sepolia
           </div>
 
           <div className="flex gap-3 justify-center">
