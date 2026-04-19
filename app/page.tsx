@@ -99,57 +99,6 @@ function WalletButton() {
   )
 }
 
-// ─── Roadmap Feature Item ────────────────────────────────────────────────────
-function RoadmapFeature({ icon: Icon, title, description, wave, available = false }: {
-  icon: any; title: string; description: string; wave: number; available?: boolean
-}) {
-  const [showTooltip, setShowTooltip] = useState(false)
-
-  const waveColors = {
-    1: { bg: "bg-emerald-500", text: "Wave 1" },
-    2: { bg: "bg-blue-500", text: "Wave 2" },
-    3: { bg: "bg-purple-500", text: "Wave 3" },
-    4: { bg: "bg-amber-500", text: "Wave 4" },
-    5: { bg: "bg-pink-500", text: "Wave 5" },
-  }
-
-  const wave = wave as keyof typeof waveColors
-
-  return (
-    <div className="relative">
-      <div
-        className={`flex items-center gap-4 p-4 rounded-xl border transition-all ${
-          available
-            ? "border-emerald-200 bg-emerald-50/50"
-            : "border-black/[0.07] hover:border-black/[0.12] hover:bg-black/[0.02]"
-        }`}
-        onMouseEnter={() => setShowTooltip(true)}
-        onMouseLeave={() => setShowTooltip(false)}
-      >
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-          available ? "bg-emerald-100" : "bg-black/[0.05]"
-        }`}>
-          <Icon className={`w-5 h-5 ${available ? "text-emerald-600" : "text-black/40"}`} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium">{title}</div>
-          <div className="text-xs text-black/50 line-clamp-1">{description}</div>
-        </div>
-        <span className={`px-2 py-1 rounded text-xs text-white ${waveColors[wave].bg}`}>
-          {waveColors[wave].text}
-        </span>
-      </div>
-      {showTooltip && !available && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-4 py-3 bg-[#111] text-white text-xs rounded-xl whitespace-nowrap z-50">
-          <div className="text-white font-medium mb-1">{title}</div>
-          <div className="text-white/70">Available in {waveColors[wave].text}</div>
-          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#111]" />
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function FhenixDropBoxPage() {
   const [email, setEmail] = useState("")
