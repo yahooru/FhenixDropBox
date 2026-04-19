@@ -122,41 +122,7 @@ export default function FhenixDropBoxPage() {
     el.style.setProperty("--mouse-y", `${e.clientY - rect.top}px`)
   }
 
-  // Roadmap features organized by wave
-  const roadmapFeatures = {
-    1: [
-      { icon: Lock, title: "Encrypted Access Rules", description: "Prices, passwords, limits hidden on-chain", available: true },
-      { icon: Database, title: "IPFS Storage", description: "Decentralized file storage", available: true },
-      { icon: Shield, title: "Privacy Protection", description: "No data exposed publicly", available: true },
-      { icon: Upload, title: "File Upload", description: "Upload files with access control", available: true },
-    ],
-    2: [
-      { icon: Eye, title: "File Preview", description: "Preview PDFs and images before purchase", wave: 2 },
-      { icon: FolderPlus, title: "Multi-File Upload", description: "Upload up to 10 files at once", wave: 2 },
-      { icon: Link2, title: "Link Expiry", description: "24h / 7d / 30d expiration", wave: 2 },
-      { icon: Download, title: "Batch Downloads", description: "Download multiple files", wave: 2 },
-    ],
-    3: [
-      { icon: FolderPlus, title: "Folder Organization", description: "Organize files in folders", wave: 3 },
-      { icon: Settings, title: "API Access", description: "Developer API for integrations", wave: 3 },
-      { icon: Code, title: "Webhooks", description: "Real-time event notifications", wave: 3 },
-      { icon: Globe, title: "CDN Distribution", description: "Fast global file delivery", wave: 3 },
-    ],
-    4: [
-      { icon: Users, title: "Team Collaboration", description: "Share folders with teams", wave: 4 },
-      { icon: Shield, title: "Advanced Permissions", description: "Granular access control", wave: 4 },
-      { icon: CreditCard, title: "Subscriptions", description: "Recurring payments", wave: 4 },
-      { icon: Share2, title: "Social Sharing", description: "Share to social platforms", wave: 4 },
-    ],
-    5: [
-      { icon: Globe, title: "Mobile App", description: "iOS and Android apps", wave: 5 },
-      { icon: Database, title: "Desktop Sync", description: "Sync files across devices", wave: 5 },
-      { icon: Code, title: "Browser Extension", description: "Quick share from browser", wave: 5 },
-      { icon: Zap, title: "Instant Transfers", description: "Real-time P2P sharing", wave: 5 },
-    ],
-  }
-
-  return (
+    return (
     <div className="bg-[#F5F4F0] text-[#111] min-h-screen font-sans antialiased">
 
       {/* ── INTRO ANIMATION ───────────────────────────────────────────────── */}
