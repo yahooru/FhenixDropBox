@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useAccount } from "wagmi"
-import { Shield, Key, Bell, Moon, Globe, Wallet, ExternalLink, Copy, CheckCircle2, Loader2 } from "lucide-react"
+import { Shield, Key, Bell, Moon, Globe, Wallet, ExternalLink, Copy, CheckCircle2, Loader2, Lock } from "lucide-react"
 
 export default function SettingsPage() {
   const { address, isConnected } = useAccount()
