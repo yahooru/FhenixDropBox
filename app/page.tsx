@@ -3,7 +3,8 @@
 import React, { useRef, useEffect, useState, useCallback } from "react"
 import Link from "next/link"
 import { useAccount, useConnect, useDisconnect } from "wagmi"
-import { Shield, Lock, Key, FileLock, Eye, EyeOff, Upload, Download, Share2, Database, Zap, CheckCircle2, DollarSign, Clock, Users, FileText, ShieldCheck } from "lucide-react"
+import { Shield, Lock, Key, Upload, Database, Eye, EyeOff, CheckCircle2, Clock, Users, FileText, ChevronDown } from "lucide-react"
+import { IntroAnimation, INTRO_DURATION_MS, HERO_REVEAL_MS } from "@/components/intro-animation"
 
 // ─── Intersection Observer hook ──────────────────────────────────────────────
 function useInView(threshold = 0.15) {
@@ -17,26 +18,6 @@ function useInView(threshold = 0.15) {
     return () => obs.disconnect()
   }, [threshold])
   return { ref, inView }
-}
-
-// ─── Animated counter ────────────────────────────────────────────────────────
-function Counter({ end, suffix = "" }: { end: number; suffix?: string }) {
-  const [count, setCount] = useState(0)
-  const { ref, inView } = useInView()
-  useEffect(() => {
-    if (!inView) return
-    let start = 0
-    const duration = 1800
-    const step = 16
-    const increment = end / (duration / step)
-    const timer = setInterval(() => {
-      start += increment
-      if (start >= end) { setCount(end); clearInterval(timer) }
-      else setCount(Math.floor(start))
-    }, step)
-    return () => clearInterval(timer)
-  }, [inView, end])
-  return <span ref={ref}>{count.toLocaleString()}{suffix}</span>
 }
 
 // ─── Bento card ──────────────────────────────────────────────────────────────
@@ -69,16 +50,6 @@ function Tag({ children }: { children: React.ReactNode }) {
   )
 }
 
-// ─── Privacy Badge ────────────────────────────────────────────────────────────
-function PrivacyBadge({ icon: Icon, label }: { icon: any; label: string }) {
-  return (
-    <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-black/[0.03] border border-black/[0.06]">
-      <Icon className="w-4 h-4 text-black/50" />
-      <span className="text-xs text-black/60">{label}</span>
-    </div>
-  )
-}
-
 // ─── Wallet Button ────────────────────────────────────────────────────────────
 function WalletButton() {
   const { address, isConnected } = useAccount()
@@ -93,16 +64,17 @@ function WalletButton() {
           onClick={() => setShowMenu(!showMenu)}
           className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#111] text-white text-xs hover:bg-[#333] transition-colors"
         >
-          <div className="w-2 h-2 rounded-full bg-emerald-500" />
+          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
           {address.slice(0, 6)}...{address.slice(-4)}
         </button>
         {showMenu && (
           <div className="absolute right-0 mt-2 w-48 rounded-xl bg-white border border-black/[0.1] shadow-lg overflow-hidden z-50">
             <Link
               href="/dashboard"
-              className="block px-4 py-3 text-xs hover:bg-black/[0.04] transition-colors"
+              className="flex items-center gap-2 px-4 py-3 text-xs hover:bg-black/[0.04] transition-colors"
               onClick={() => setShowMenu(false)}
             >
+              <FileText className="w-4 h-4" />
               Dashboard
             </Link>
             <button
@@ -143,13 +115,13 @@ function FeatureCard({ icon: Icon, title, description, delay = 0 }: { icon: any;
       <div className="w-12 h-12 rounded-xl bg-black/[0.04] flex items-center justify-center mb-4">
         <Icon className="w-5 h-5 text-black/60" />
       </div>
-      <h3 className="text-lg font-medium mb-2">{title}</h3>
+      <h3 className="text-lg font-light mb-2">{title}</h3>
       <p className="text-sm text-black/45 leading-relaxed">{description}</p>
     </div>
   )
 }
 
-// ─── How it works step ───────────────────────────────────────────────────────
+// ─── Step Card ──────────────────────────────────────────────────────────────
 function StepCard({ number, title, description, delay = 0 }: { number: string; title: string; description: string; delay?: number }) {
   const { ref, inView } = useInView(0.1)
   return (
@@ -166,7 +138,7 @@ function StepCard({ number, title, description, delay = 0 }: { number: string; t
         {number}
       </div>
       <div>
-        <h3 className="text-lg font-medium mb-1">{title}</h3>
+        <h3 className="text-lg font-light mb-1">{title}</h3>
         <p className="text-sm text-black/45 leading-relaxed">{description}</p>
       </div>
     </div>
@@ -178,9 +150,14 @@ export default function FhenixDropBoxPage() {
   const [email, setEmail] = useState("")
   const [submitted, setSubmitted] = useState(false)
   const [heroReady, setHeroReady] = useState(false)
+  const [videoReady, setVideoReady] = useState(false)
+
+  const handleIntroDone = useCallback(() => {
+    setHeroReady(true)
+  }, [])
 
   useEffect(() => {
-    const t = setTimeout(() => setHeroReady(true), 300)
+    const t = setTimeout(() => setVideoReady(true), HERO_REVEAL_MS)
     return () => clearTimeout(t)
   }, [])
 
@@ -194,20 +171,34 @@ export default function FhenixDropBoxPage() {
   return (
     <div className="bg-[#F5F4F0] text-[#111] min-h-screen font-sans antialiased">
 
+      {/* ── INTRO ANIMATION ───────────────────────────────────────────────── */}
+      <IntroAnimation onDone={handleIntroDone} />
+
       {/* ── STICKY NAV ────────────────────────────────────────────────────── */}
-      <nav className="fixed top-4 inset-x-0 z-50 flex justify-center px-4">
-        <div className="w-full max-w-4xl bg-white/80 backdrop-blur-xl border border-black/[0.08] rounded-2xl shadow-lg">
-          <div className="flex items-center justify-between px-5 py-3">
+      <nav className="fixed top-4 inset-x-0 z-50 flex justify-center px-4 pointer-events-none">
+        <div className="pointer-events-auto w-full max-w-3xl">
+
+          {/* Main bar */}
+          <div
+            className="flex items-center justify-between px-5 py-3 rounded-2xl border border-black/[0.06]"
+            style={{
+              backdropFilter: "blur(16px)",
+              WebkitBackdropFilter: "blur(16px)",
+              background: "rgba(245,244,240,0.30)",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.06)",
+            }}
+          >
             <Link href="/" className="flex items-center gap-2">
-              <Shield className="w-6 h-6 text-[#111]" />
-              <span className="font-medium text-sm tracking-tight">FhenixDropBox</span>
+              <Shield className="w-5 h-5 text-[#111]" />
+              <span className="text-xs tracking-[0.15em] text-black/70 font-medium">FHENIXDROPBOX</span>
             </Link>
 
-            <div className="hidden md:flex items-center gap-8">
-              <Link href="#features" className="text-xs text-black/50 hover:text-black transition-colors tracking-wide">Features</Link>
-              <Link href="#how-it-works" className="text-xs text-black/50 hover:text-black transition-colors tracking-wide">How it Works</Link>
-              <Link href="#security" className="text-xs text-black/50 hover:text-black transition-colors tracking-wide">Security</Link>
-              <Link href="/dashboard" className="text-xs text-black/50 hover:text-black transition-colors tracking-wide">Dashboard</Link>
+            {/* Desktop links */}
+            <div className="hidden md:flex items-center gap-7">
+              <Link href="#features" className="text-[11px] text-black/60 hover:text-black transition-colors duration-200 tracking-wide">Features</Link>
+              <Link href="#how-it-works" className="text-[11px] text-black/60 hover:text-black transition-colors duration-200 tracking-wide">How it Works</Link>
+              <Link href="#security" className="text-[11px] text-black/60 hover:text-black transition-colors duration-200 tracking-wide">Security</Link>
+              <Link href="/dashboard" className="text-[11px] text-black/60 hover:text-black transition-colors duration-200 tracking-wide">Dashboard</Link>
             </div>
 
             <WalletButton />
@@ -216,240 +207,194 @@ export default function FhenixDropBoxPage() {
       </nav>
 
       {/* ── HERO ──────────────────────────────────────────────────────────── */}
-      <section className="relative min-h-screen flex items-center pt-32 pb-20 px-6 overflow-hidden">
-        {/* Background gradient */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[#F5F4F0] via-[#F0EEE8] to-[#E8E6E0]" />
+      <section className="relative h-screen overflow-hidden">
 
-        {/* Decorative elements */}
-        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#111]/[0.03] rounded-full blur-3xl" />
-        <div className="absolute bottom-1/4 left-1/4 w-64 h-64 bg-[#111]/[0.02] rounded-full blur-3xl" />
+        {/* Video background */}
+        <video
+          autoPlay
+          loop
+          muted
+          playsInline
+          className="absolute inset-0 w-full h-full object-cover z-0"
+          src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/agentic-hero-9yW3wnTNMfn2U6lsVhTTZSJFEvAoSj.mp4"
+          style={{
+            transform: videoReady ? "scale(1.05)" : "scale(0.85)",
+            transition: "transform 2s cubic-bezier(0.16, 1, 0.3, 1)",
+          }}
+        />
 
-        <div className="relative z-10 max-w-5xl mx-auto text-center">
-          <div
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-black/[0.04] mb-8"
-            style={{
-              opacity: heroReady ? 1 : 0,
-              transform: heroReady ? "translateY(0)" : "translateY(20px)",
-              transition: "opacity 0.8s ease 0ms, transform 0.8s ease 0ms",
-            }}
-          >
-            <Lock className="w-3 h-3 text-[#111]" />
-            <span className="text-xs text-black/50 tracking-wide">Powered by Fhenix FHE Technology</span>
-          </div>
+        {/* Progressive blur + light gradient rising from bottom */}
+        <div className="absolute inset-x-0 bottom-0 z-10 pointer-events-none" style={{ height: "65%", background: "linear-gradient(to top, #F5F4F0 0%, #F5F4F0 18%, rgba(245,244,240,0.85) 35%, rgba(245,244,240,0.5) 55%, rgba(245,244,240,0.15) 75%, transparent 100%)" }} />
+        <div className="absolute inset-x-0 bottom-0 z-10 pointer-events-none" style={{ height: "20%", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", maskImage: "linear-gradient(to top, black 0%, transparent 100%)", WebkitMaskImage: "linear-gradient(to top, black 0%, transparent 100%)" }} />
+        <div className="absolute inset-x-0 bottom-0 z-10 pointer-events-none" style={{ height: "38%", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)", maskImage: "linear-gradient(to top, black 0%, transparent 100%)", WebkitMaskImage: "linear-gradient(to top, black 0%, transparent 100%)" }} />
+        <div className="absolute inset-x-0 bottom-0 z-10 pointer-events-none" style={{ height: "55%", backdropFilter: "blur(2px)", WebkitBackdropFilter: "blur(2px)", maskImage: "linear-gradient(to top, black 0%, transparent 100%)", WebkitMaskImage: "linear-gradient(to top, black 0%, transparent 100%)" }} />
 
+        {/* Spacer so hero content doesn't sit under the fixed nav */}
+        <div className="h-20" />
+
+        {/* Title + metrics — anchored to bottom left */}
+        <div className="absolute inset-x-0 bottom-0 z-30 flex flex-col px-6 md:px-12 pb-12 max-w-3xl">
+          {/* Title */}
           <h1
-            className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-light text-[#111] leading-[1.0] tracking-tight mb-8"
+            className="text-6xl sm:text-7xl md:text-8xl font-light text-[#111] leading-[1.0] tracking-tight mb-10"
             style={{
+              fontFamily: '"IBM Plex Sans", sans-serif',
               opacity: heroReady ? 1 : 0,
               filter: heroReady ? "blur(0px)" : "blur(24px)",
               transform: heroReady ? "translateY(0px)" : "translateY(32px)",
-              transition: "opacity 1s cubic-bezier(0.16,1,0.3,1) 100ms, filter 1s cubic-bezier(0.16,1,0.3,1) 100ms, transform 1s cubic-bezier(0.16,1,0.3,1) 100ms",
+              transition: "opacity 1s cubic-bezier(0.16,1,0.3,1) 0ms, filter 1s cubic-bezier(0.16,1,0.3,1) 0ms, transform 1s cubic-bezier(0.16,1,0.3,1) 0ms",
             }}
           >
-            Share files with<br />
-            <span className="font-medium">complete privacy</span>
+            Share files with<br />complete privacy.<br />Zero exposure.
           </h1>
 
-          <p
-            className="text-lg md:text-xl text-black/50 max-w-2xl mx-auto mb-12 leading-relaxed"
-            style={{
-              opacity: heroReady ? 1 : 0,
-              transform: heroReady ? "translateY(0px)" : "translateY(20px)",
-              transition: "opacity 0.8s ease 200ms, transform 0.8s ease 200ms",
-            }}
-          >
-            Decentralized file sharing with encrypted access control. Your data, your rules, zero exposure.
-          </p>
-
+          {/* CTA buttons */}
           <div
-            className="flex flex-col sm:flex-row gap-4 justify-center items-center"
+            className="flex gap-4 mb-8"
             style={{
               opacity: heroReady ? 1 : 0,
-              transform: heroReady ? "translateY(0px)" : "translateY(20px)",
-              transition: "opacity 0.8s ease 400ms, transform 0.8s ease 400ms",
+              transition: `opacity 0.8s cubic-bezier(0.16,1,0.3,1) ${200}ms`,
             }}
           >
             <Link
               href="/dashboard"
-              className="px-8 py-4 rounded-xl bg-[#111] text-white text-sm hover:bg-[#333] transition-colors tracking-wide flex items-center gap-2"
+              className="px-6 py-3 rounded-xl bg-[#111] text-white text-sm hover:bg-[#333] transition-colors flex items-center gap-2"
             >
               <Upload className="w-4 h-4" />
               Start Sharing
             </Link>
             <Link
               href="#how-it-works"
-              className="px-8 py-4 rounded-xl border border-black/10 text-black/70 text-sm hover:border-black/20 hover:text-black transition-colors tracking-wide"
+              className="px-6 py-3 rounded-xl border border-black/10 text-black/70 text-sm hover:border-black/20 hover:text-black transition-colors flex items-center gap-2"
             >
+              <Lock className="w-4 h-4" />
               Learn More
             </Link>
           </div>
 
-          {/* Stats */}
-          <div
-            className="flex gap-12 justify-center mt-20"
-            style={{
-              opacity: heroReady ? 1 : 0,
-              transition: "opacity 0.8s ease 600ms",
-            }}
-          >
+          {/* 3 metrics — staggered after title */}
+          <div className="flex gap-8 sm:gap-12">
             {[
               { value: "100%", label: "Private" },
-              { value: "0", label: "Data Exposed" },
               { value: "FHE", label: "Encryption" },
+              { value: "0", label: "Data Exposed" },
             ].map((stat, i) => (
-              <div key={i} className="text-center">
-                <div className="text-2xl md:text-3xl font-medium text-[#111]">{stat.value}</div>
-                <div className="text-xs text-black/40 tracking-widest uppercase mt-1">{stat.label}</div>
+              <div
+                key={i}
+                style={{
+                  opacity: heroReady ? 1 : 0,
+                  filter: heroReady ? "blur(0px)" : "blur(16px)",
+                  transform: heroReady ? "translateY(0px)" : "translateY(20px)",
+                  transition: `opacity 0.8s cubic-bezier(0.16,1,0.3,1) ${120 + i * 80}ms, filter 0.8s cubic-bezier(0.16,1,0.3,1) ${120 + i * 80}ms, transform 0.8s cubic-bezier(0.16,1,0.3,1) ${120 + i * 80}ms`,
+                }}
+              >
+                <div className="text-3xl sm:text-4xl text-[#111] font-light tracking-tight" style={{ fontFamily: '"IBM Plex Sans", sans-serif' }}>{stat.value}</div>
+                <div className="text-xs text-black/40 tracking-widest uppercase mt-1" style={{ fontFamily: '"IBM Plex Sans", sans-serif' }}>{stat.label}</div>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ── PRIVACY BADGES ─────────────────────────────────────────────────── */}
-      <section className="py-16 px-6 border-t border-black/[0.06]">
-        <div className="max-w-5xl mx-auto">
-          <div className="flex flex-wrap justify-center gap-4">
-            <PrivacyBadge icon={Lock} label="Encrypted Prices" />
-            <PrivacyBadge icon={Key} label="Hidden Passwords" />
-            <PrivacyBadge icon={EyeOff} label="Private Access" />
-            <PrivacyBadge icon={Shield} label="Confidential Payments" />
-            <PrivacyBadge icon={Clock} label="Hidden Expiry" />
-          </div>
-        </div>
-      </section>
-
-      {/* ── FEATURES ──────────────────────────────────────────────────────── */}
-      <section id="features" className="py-32 px-6 md:px-12 lg:px-20 border-t border-black/[0.06]">
+      {/* ── PLATFORM OVERVIEW (bento) ──────────────────────────────────────── */}
+      <section id="features" className="py-32 px-6 md:px-12 lg:px-20">
         <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-16">
-            <Tag>FEATURES</Tag>
-            <h2 className="mt-5 text-4xl md:text-5xl font-light tracking-tight leading-[1.05]">
-              Privacy by design,<br />not by policy.
+          <div className="mb-16">
+            <Tag>PLATFORM</Tag>
+            <h2 className="mt-5 text-4xl md:text-5xl lg:text-6xl font-light tracking-tight leading-[1.05]">
+              Privacy-first file sharing<br />built on Fhenix.
             </h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" onMouseMove={handleMouse}>
-            <FeatureCard
-              icon={Lock}
-              title="Encrypted Access Control"
-              description="Set prices, passwords, and access rules that are completely hidden from the blockchain. No one can see who accessed what."
-              delay={0}
-            />
-            <FeatureCard
-              icon={DollarSign}
-              title="Confidential Payments"
-              description="Validate payments without revealing amounts. Perfect for competitive pricing strategies and private transactions."
-              delay={100}
-            />
-            <FeatureCard
-              icon={FileLock}
-              title="Secret-Based Unlock"
-              description="Users unlock files using hidden codes. Verification happens on encrypted data without exposing the code."
-              delay={200}
-            />
-            <FeatureCard
-              icon={Clock}
-              title="Encrypted Expiry & Limits"
-              description="Set download limits and expiry times that are hidden from public view. Control when access ends privately."
-              delay={300}
-            />
-            <FeatureCard
-              icon={Database}
-              title="Decentralized Storage"
-              description="Files are encrypted locally and stored on IPFS. Only you and authorized users can access the content."
-              delay={400}
-            />
-            <FeatureCard
-              icon={ShieldCheck}
-              title="Enterprise Ready"
-              description="Built for legal, business, and sensitive data sharing. Full privacy compliance without compromising usability."
-              delay={500}
-            />
+          <div className="grid grid-cols-12 grid-rows-auto gap-3" onMouseMove={handleMouse}>
+            {/* Big left card */}
+            <BentoCard className="col-span-12 p-8 min-h-[200px] flex flex-col justify-between relative overflow-hidden" delay={0}>
+              <img
+                src="/images/arc.png"
+                alt=""
+                aria-hidden="true"
+                className="absolute inset-0 w-full h-full object-cover"
+                style={{ objectPosition: "center 70%" }}
+              />
+              <div className="absolute inset-0" style={{
+                maskImage: "linear-gradient(to bottom, transparent 45%, black 100%)",
+                WebkitMaskImage: "linear-gradient(to bottom, transparent 45%, black 100%)",
+                backdropFilter: "blur(16px)",
+                WebkitBackdropFilter: "blur(16px)",
+              }} />
+              <div
+                className="absolute inset-0"
+                style={{
+                  background: "linear-gradient(to bottom, transparent 35%, rgba(245,244,240,0.3) 50%, rgba(245,244,240,0.75) 65%, rgba(245,244,240,0.95) 80%, rgb(245,244,240) 100%)",
+                }}
+              />
+              <div className="relative z-10">
+                <div className="w-10 h-10 rounded-xl border border-black/10 bg-white/60 flex items-center justify-center mb-6" style={{ backdropFilter: "blur(8px)" }}>
+                  <Lock className="w-5 h-5 text-black/60" />
+                </div>
+                <h3 className="text-xl font-light mb-3">Encrypted Access Control</h3>
+                <p className="text-sm text-black/45 leading-relaxed max-w-sm">
+                  All file prices, passwords, and access rules are encrypted using Fhenix FHE. No one can see your data.
+                </p>
+              </div>
+            </BentoCard>
+
+            {/* Bottom row */}
+            <BentoCard className="col-span-12 md:col-span-4 p-8 min-h-[200px]" delay={120}>
+              <div className="w-10 h-10 rounded-xl border border-black/10 flex items-center justify-center mb-5">
+                <Key className="w-5 h-5 text-black/60" />
+              </div>
+              <h3 className="text-lg font-light mb-2">Secret-Based Unlock</h3>
+              <p className="text-sm text-black/45 leading-relaxed">Passwords are verified without being exposed. Zero knowledge verification.</p>
+            </BentoCard>
+
+            <BentoCard className="col-span-12 md:col-span-4 p-8 min-h-[200px]" delay={160}>
+              <div className="w-10 h-10 rounded-xl border border-black/10 flex items-center justify-center mb-5">
+                <EyeOff className="w-5 h-5 text-black/60" />
+              </div>
+              <h3 className="text-lg font-light mb-2">Private Downloads</h3>
+              <p className="text-sm text-black/45 leading-relaxed">Download counts and access logs are hidden. Complete privacy.</p>
+            </BentoCard>
+
+            <BentoCard className="col-span-12 md:col-span-4 p-8 min-h-[200px]" delay={200}>
+              <div className="w-10 h-10 rounded-xl border border-black/10 flex items-center justify-center mb-5">
+                <Database className="w-5 h-5 text-black/60" />
+              </div>
+              <h3 className="text-lg font-light mb-2">Decentralized Storage</h3>
+              <p className="text-sm text-black/45 leading-relaxed">Files encrypted and stored on IPFS. Only you control the keys.</p>
+            </BentoCard>
           </div>
         </div>
       </section>
 
       {/* ── HOW IT WORKS ──────────────────────────────────────────────────── */}
-      <section id="how-it-works" className="py-32 px-6 md:px-12 lg:px-20 border-t border-black/[0.06] bg-white">
+      <section id="how-it-works" className="py-32 px-6 md:px-12 lg:px-20 border-t border-black/[0.06] overflow-hidden">
         <div className="max-w-6xl mx-auto">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
-            <div>
-              <Tag>HOW IT WORKS</Tag>
-              <h2 className="mt-5 text-4xl md:text-5xl font-light tracking-tight leading-[1.05] mb-8">
-                From upload to<br />private sharing
-              </h2>
+          <div className="mb-16">
+            <Tag>HOW IT WORKS</Tag>
+            <h2 className="mt-5 text-4xl md:text-5xl font-light tracking-tight leading-[1.05]">
+              From upload to private sharing<br />in five steps.
+            </h2>
+          </div>
 
-              <div className="space-y-8">
-                <StepCard
-                  number="1"
-                  title="Upload & Encrypt"
-                  description="Select your file. It's encrypted locally on your device before uploading to IPFS."
-                  delay={0}
-                />
-                <StepCard
-                  number="2"
-                  title="Set Access Rules"
-                  description="Define price, password, expiry, and download limits. These are encrypted with Fhenix FHE."
-                  delay={100}
-                />
-                <StepCard
-                  number="3"
-                  title="Get Secure Link"
-                  description="Receive a private shareable link. All access conditions remain hidden on-chain."
-                  delay={200}
-                />
-                <StepCard
-                  number="4"
-                  title="Private Verification"
-                  description="When someone accesses the file, all validations happen on encrypted data."
-                  delay={300}
-                />
-                <StepCard
-                  number="5"
-                  title="Secure Download"
-                  description="Access granted? File is decrypted locally for the authorized user only."
-                  delay={400}
-                />
-              </div>
-            </div>
-
-            <div className="relative">
-              <BentoCard className="p-8 min-h-[400px]">
-                <div className="space-y-6">
-                  <div className="flex items-center gap-4 pb-4 border-b border-black/[0.06]">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
-                      <Lock className="w-5 h-5 text-emerald-600" />
-                    </div>
-                    <div>
-                      <div className="text-sm font-medium">Privacy Layer</div>
-                      <div className="text-xs text-black/40">Everything is encrypted</div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    {[
-                      { label: "Price", value: "████ USDC", visible: false },
-                      { label: "Password", value: "••••••••", visible: false },
-                      { label: "Downloads Left", value: "██/10", visible: false },
-                      { label: "Expires", value: "████-██-██", visible: false },
-                    ].map((item, i) => (
-                      <div key={i} className="flex items-center justify-between py-2 px-3 rounded-lg bg-black/[0.02]">
-                        <span className="text-xs text-black/40">{item.label}</span>
-                        <span className="text-xs font-mono text-black/60">{item.value}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="pt-4 border-t border-black/[0.06]">
-                    <div className="flex items-center gap-2 text-xs text-emerald-600">
-                      <CheckCircle2 className="w-3 h-3" />
-                      <span>Access rules are encrypted on-chain</span>
-                    </div>
-                  </div>
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3" onMouseMove={handleMouse}>
+            {[
+              { n: "01", title: "Upload", desc: "Select your file. It's encrypted locally before uploading to IPFS.", delay: 0 },
+              { n: "02", title: "Set Rules", desc: "Define access conditions. All are encrypted with Fhenix FHE.", delay: 80 },
+              { n: "03", title: "Share Link", desc: "Get a private shareable link. Access rules stay hidden.", delay: 140 },
+              { n: "04", title: "Verify", desc: "Access requests are verified on encrypted data.", delay: 200 },
+              { n: "05", title: "Download", desc: "Access granted? File is decrypted locally for the user only.", delay: 260 },
+            ].map((step) => (
+              <BentoCard key={step.n} className="relative overflow-hidden flex flex-col min-h-[280px]" delay={step.delay}>
+                <div className="relative z-10 p-7">
+                  <span className="text-[11px] text-black/20 tracking-widest block">{step.n}</span>
+                </div>
+                <div className="relative z-10 px-7 pb-7 mt-auto">
+                  <h3 className="text-2xl font-light mb-3">{step.title}</h3>
+                  <p className="text-sm text-black/45 leading-relaxed">{step.desc}</p>
                 </div>
               </BentoCard>
-            </div>
+            ))}
           </div>
         </div>
       </section>
@@ -457,56 +402,60 @@ export default function FhenixDropBoxPage() {
       {/* ── SECURITY ──────────────────────────────────────────────────────── */}
       <section id="security" className="py-32 px-6 md:px-12 lg:px-20 border-t border-black/[0.06]">
         <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-16">
+          <div className="mb-16">
             <Tag>SECURITY</Tag>
             <h2 className="mt-5 text-4xl md:text-5xl font-light tracking-tight leading-[1.05]">
-              Why privacy matters
+              Why privacy matters.
             </h2>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <BentoCard className="p-8" delay={0}>
-              <div className="text-4xl mb-4">❌</div>
-              <h3 className="text-lg font-medium mb-3">Traditional Web3</h3>
-              <ul className="space-y-2 text-sm text-black/50">
+              <div className="w-10 h-10 rounded-xl border border-red-200 flex items-center justify-center mb-4">
+                <Eye className="w-5 h-5 text-red-500" />
+              </div>
+              <h3 className="text-lg font-light mb-3">Traditional Web3</h3>
+              <ul className="space-y-2 text-sm text-black/45">
                 <li className="flex items-center gap-2">
-                  <span className="w-1 h-1 rounded-full bg-red-400" />
+                  <div className="w-1 h-1 rounded-full bg-red-400 shrink-0" />
                   File prices are public
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="w-1 h-1 rounded-full bg-red-400" />
-                  Who accessed what is visible
+                  <div className="w-1 h-1 rounded-full bg-red-400 shrink-0" />
+                  Access logs are visible
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="w-1 h-1 rounded-full bg-red-400" />
-                  Payment amounts exposed
+                  <div className="w-1 h-1 rounded-full bg-red-400 shrink-0" />
+                  Passwords exposed
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="w-1 h-1 rounded-full bg-red-400" />
-                  Access rules readable by anyone
+                  <div className="w-1 h-1 rounded-full bg-red-400 shrink-0" />
+                  Download limits visible
                 </li>
               </ul>
             </BentoCard>
 
             <BentoCard className="p-8" delay={100}>
-              <div className="text-4xl mb-4">✅</div>
-              <h3 className="text-lg font-medium mb-3">FhenixDropBox</h3>
-              <ul className="space-y-2 text-sm text-black/50">
+              <div className="w-10 h-10 rounded-xl border border-emerald-200 flex items-center justify-center mb-4">
+                <Shield className="w-5 h-5 text-emerald-600" />
+              </div>
+              <h3 className="text-lg font-light mb-3">FhenixDropBox</h3>
+              <ul className="space-y-2 text-sm text-black/45">
                 <li className="flex items-center gap-2">
-                  <span className="w-1 h-1 rounded-full bg-emerald-500" />
-                  Prices hidden with FHE encryption
+                  <div className="w-1 h-1 rounded-full bg-emerald-500 shrink-0" />
+                  Prices encrypted with FHE
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="w-1 h-1 rounded-full bg-emerald-500" />
+                  <div className="w-1 h-1 rounded-full bg-emerald-500 shrink-0" />
                   Access logs completely private
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="w-1 h-1 rounded-full bg-emerald-500" />
-                  Payment amounts confidential
+                  <div className="w-1 h-1 rounded-full bg-emerald-500 shrink-0" />
+                  Passwords never exposed
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="w-1 h-1 h-1 rounded-full bg-emerald-500" />
-                  Access rules encrypted always
+                  <div className="w-1 h-1 rounded-full bg-emerald-500 shrink-0" />
+                  Download limits hidden
                 </li>
               </ul>
             </BentoCard>
@@ -517,10 +466,10 @@ export default function FhenixDropBoxPage() {
       {/* ── USE CASES ─────────────────────────────────────────────────────── */}
       <section className="py-32 px-6 md:px-12 lg:px-20 border-t border-black/[0.06] bg-white">
         <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-16">
+          <div className="mb-16">
             <Tag>USE CASES</Tag>
             <h2 className="mt-5 text-4xl md:text-5xl font-light tracking-tight leading-[1.05]">
-              Built for real-world privacy
+              Built for real-world privacy.
             </h2>
           </div>
 
@@ -528,11 +477,11 @@ export default function FhenixDropBoxPage() {
             {[
               { icon: FileText, title: "Legal Documents", desc: "Share sensitive legal files with clients securely" },
               { icon: Users, title: "Enterprise Data", desc: "Distribute internal data without exposure" },
-              { icon: DollarSign, title: "Premium Content", desc: "Monetize content without revealing pricing" },
+              { icon: Lock, title: "Private Content", desc: "Monetize content with confidential pricing" },
             ].map((item, i) => (
               <BentoCard key={i} className="p-6" delay={i * 80}>
                 <item.icon className="w-6 h-6 text-black/40 mb-4" />
-                <h3 className="text-base font-medium mb-2">{item.title}</h3>
+                <h3 className="text-base font-light mb-2">{item.title}</h3>
                 <p className="text-sm text-black/45">{item.desc}</p>
               </BentoCard>
             ))}
@@ -540,23 +489,84 @@ export default function FhenixDropBoxPage() {
         </div>
       </section>
 
+      {/* ── PRIVACY BADGES ─────────────────────────────────────────────────── */}
+      <section className="py-16 px-6 border-t border-black/[0.06]">
+        <div className="max-w-5xl mx-auto">
+          <div className="flex flex-wrap justify-center gap-4">
+            {[
+              { icon: Lock, label: "Encrypted Prices" },
+              { icon: Key, label: "Hidden Passwords" },
+              { icon: EyeOff, label: "Private Access" },
+              { icon: Shield, label: "Confidential Payments" },
+              { icon: Clock, label: "Hidden Expiry" },
+            ].map((badge, i) => (
+              <div key={i} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-black/[0.03] border border-black/[0.06]">
+                <badge.icon className="w-4 h-4 text-black/50" />
+                <span className="text-xs text-black/60">{badge.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* ── CTA ───────────────────────────────────────────────────────────── */}
       <section className="relative py-32 px-6 md:px-12 lg:px-20 border-t border-black/[0.06] overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#111] to-[#333]" />
-        <div className="relative z-10 max-w-2xl mx-auto text-center text-white">
-          <h2 className="text-4xl md:text-5xl font-light tracking-tight leading-[1.05] mb-6">
+        <img
+          src="/images/footer.png"
+          alt=""
+          aria-hidden="true"
+          className="absolute bottom-0 left-0 w-full object-cover object-bottom pointer-events-none select-none"
+          style={{ opacity: 0.85 }}
+        />
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            maskImage: "linear-gradient(to top, transparent 0%, black 55%)",
+            WebkitMaskImage: "linear-gradient(to top, transparent 0%, black 55%)",
+            backdropFilter: "blur(18px)",
+            WebkitBackdropFilter: "blur(18px)",
+          }}
+        />
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background: "linear-gradient(to top, rgb(245,244,240) 0%, rgba(245,244,240,0.92) 18%, rgba(245,244,240,0.55) 35%, transparent 55%)",
+          }}
+        />
+        <div className="relative z-10 max-w-2xl mx-auto text-center">
+          <h2 className="text-4xl md:text-5xl lg:text-6xl font-light tracking-tight leading-[1.05] mb-6">
             Start sharing privately today.
           </h2>
-          <p className="text-sm text-white/60 leading-relaxed mb-10">
+          <p className="text-sm text-black/45 leading-relaxed mb-10">
             Join the privacy revolution. Upload your first file and experience truly private file sharing.
           </p>
-          <Link
-            href="/dashboard"
-            className="inline-flex items-center gap-2 px-8 py-4 rounded-xl bg-white text-[#111] text-sm hover:bg-white/90 transition-colors tracking-wide"
-          >
-            <Upload className="w-4 h-4" />
-            Get Started
-          </Link>
+          {!submitted ? (
+            <form
+              onSubmit={e => { e.preventDefault(); if (email) setSubmitted(true) }}
+              className="flex flex-col sm:flex-row gap-2 max-w-md mx-auto"
+            >
+              <input
+                type="email"
+                placeholder="your@email.com"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                required
+                className="flex-1 bg-white border border-black/10 rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-black/25 focus:outline-none focus:border-black/25 transition-colors"
+              />
+              <Link
+                href="/dashboard"
+                className="px-8 py-3 bg-[#111] text-white text-sm rounded-xl hover:bg-[#333] transition-colors tracking-widest font-medium flex items-center justify-center gap-2"
+              >
+                <Upload className="w-4 h-4" />
+                GET STARTED
+              </Link>
+            </form>
+          ) : (
+            <div className="inline-flex items-center gap-2 px-6 py-3 rounded-xl border border-emerald-600/20 bg-emerald-50 text-emerald-700 text-sm">
+              <CheckCircle2 className="w-4 h-4" />
+              {"You're on the list. We'll be in touch."}
+            </div>
+          )}
         </div>
       </section>
 
@@ -569,20 +579,20 @@ export default function FhenixDropBoxPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
-            <Link href="#features" className="text-xs text-black/35 hover:text-black/70 transition-colors">Features</Link>
-            <Link href="#how-it-works" className="text-xs text-black/35 hover:text-black/70 transition-colors">How it Works</Link>
-            <Link href="#security" className="text-xs text-black/35 hover:text-black/70 transition-colors">Security</Link>
-            <Link href="/dashboard" className="text-xs text-black/35 hover:text-black/70 transition-colors">Dashboard</Link>
+            <Link href="#features" className="text-xs text-black/35 hover:text-black/70 transition-colors tracking-widest">Features</Link>
+            <Link href="#how-it-works" className="text-xs text-black/35 hover:text-black/70 transition-colors tracking-widest">How it Works</Link>
+            <Link href="#security" className="text-xs text-black/35 hover:text-black/70 transition-colors tracking-widest">Security</Link>
+            <Link href="/dashboard" className="text-xs text-black/35 hover:text-black/70 transition-colors tracking-widest">Dashboard</Link>
           </div>
 
           <div className="flex items-center gap-6">
-            <a href="#" className="text-xs text-black/25 hover:text-black/55 transition-colors">Privacy</a>
-            <a href="#" className="text-xs text-black/25 hover:text-black/55 transition-colors">Terms</a>
-            <a href="https://fhenix.zone" target="_blank" rel="noopener noreferrer" className="text-xs text-black/25 hover:text-black/55 transition-colors">Fhenix</a>
+            <a href="#" className="text-xs text-black/25 hover:text-black/55 transition-colors tracking-widest">Privacy</a>
+            <a href="#" className="text-xs text-black/25 hover:text-black/55 transition-colors tracking-widest">Terms</a>
+            <a href="https://fhenix.zone" target="_blank" rel="noopener noreferrer" className="text-xs text-black/25 hover:text-black/55 transition-colors tracking-widest">Fhenix</a>
           </div>
         </div>
         <div className="max-w-6xl mx-auto mt-8 pt-6 border-t border-black/[0.04]">
-          <span className="text-xs text-black/20">© 2024 FhenixDropBox. Powered by Fhenix FHE.</span>
+          <span className="text-xs text-black/20">2024 FhenixDropBox. Powered by Fhenix FHE.</span>
         </div>
       </footer>
     </div>
