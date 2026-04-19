@@ -6,13 +6,9 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title FhenixDropBox
- * @dev Privacy-first decentralized file sharing with encrypted access control.
- *      Uses placeholder encrypted types that can be replaced with Fhenix FHE types
+ * @notice Privacy-first decentralized file sharing with encrypted access control.
+ * @dev Uses placeholder encrypted types that can be replaced with Fhenix FHE types
  *      when deploying to Fhenix network.
- *
- *      IMPORTANT: This is a mock implementation demonstrating the architecture.
- *      For production use on Fhenix, replace encrypted types with actual FHE types
- *      from @fhenixprotocol/contracts library.
  */
 contract FhenixDropBox is Ownable, ReentrancyGuard {
 
