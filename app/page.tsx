@@ -99,49 +99,6 @@ function WalletButton() {
   )
 }
 
-// ─── Roadmap Feature Item ────────────────────────────────────────────────────
-function RoadmapFeature({ icon: any, title, description, available = false }: {
-  icon: any; title: string; description: string; available?: boolean
-}) {
-  const [showTooltip, setShowTooltip] = useState(false)
-
-  return (
-    <div className="relative">
-      <div
-        className={`flex items-center gap-4 p-4 rounded-xl border transition-all ${
-          available
-            ? "border-emerald-200 bg-emerald-50/50"
-            : "border-black/[0.07] hover:border-black/[0.12] hover:bg-black/[0.02] cursor-not-allowed"
-        }`}
-        onMouseEnter={() => !available && setShowTooltip(true)}
-        onMouseLeave={() => setShowTooltip(false)}
-      >
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-          available ? "bg-emerald-100" : "bg-black/[0.05]"
-        }`}>
-          <icon className={`w-5 h-5 ${available ? "text-emerald-600" : "text-black/40"}`} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium">{title}</div>
-          <div className="text-xs text-black/50 line-clamp-1">{description}</div>
-        </div>
-        {available && (
-          <span className="px-2 py-1 rounded text-xs text-white bg-emerald-500">
-            Live
-          </span>
-        )}
-      </div>
-      {showTooltip && !available && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-4 py-3 bg-[#111] text-white text-xs rounded-xl whitespace-nowrap z-50">
-          <div className="text-white font-medium mb-1">{title}</div>
-          <div className="text-white/70">Coming in a future update</div>
-          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#111]" />
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function FhenixDropBoxPage() {
   const [email, setEmail] = useState("")
