@@ -1,18 +1,19 @@
 /**
  * Fhenix Integration Utilities
  *
- * This module provides utilities for interacting with Fhenix FHE-enabled smart contracts.
- * It handles encryption of inputs and decryption of outputs.
- *
- * IMPORTANT: This is a mock implementation demonstrating the architecture.
- * For production use, integrate with the actual @fhenixprotocol/js library
- * when it becomes available.
+ * Utilities for interacting with FhenixDropBox smart contract on Sepolia.
  */
 
-import { useContractReads, useContractWrite, usePrepareContractWrite, useWaitForTransaction } from 'wagmi'
-import { parseEther, parseUnits } from 'viem'
+import { 0x4a69Db2288Bb9868Bf6eB87FFBcfaeebB51231e8 } from 'viem'
+import { sepolia, arbitrumSepolia } from 'wagmi/chains'
 
-// Contract ABI (simplified for demo)
+// Contract address
+export const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '0x4a69Db2288Bb9868Bf6eB87FFBcfaeebB51231e8'
+
+// Supported chains
+export const SUPPORTED_CHAINS = [sepolia, arbitrumSepolia]
+
+// Contract ABI
 export const FHENIX_DROPBOX_ABI = [
   {
     name: "uploadFile",
@@ -42,7 +43,17 @@ export const FHENIX_DROPBOX_ABI = [
     stateMutability: "nonpayable"
   },
   {
-    name: "getFileDetails",
+    name: "verifyPassword",
+    type: "function",
+    inputs: [
+      { name: "fileId", type: "uint256" },
+      { name: "password", type: "string" }
+    ],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "view"
+  },
+  {
+    name: "getFileInfo",
     type: "function",
     inputs: [{ name: "fileId", type: "uint256" }],
     outputs: [
@@ -51,12 +62,33 @@ export const FHENIX_DROPBOX_ABI = [
       { name: "price", type: "uint256" },
       { name: "maxDownloads", type: "uint256" },
       { name: "downloadCount", type: "uint256" },
-      { name: "expiresAt", type: "uint256" },
       { name: "isActive", type: "bool" },
-      { name: "hasPassword", type: "bool" },
+      { name: "hasPassword", type: "bool" }
+    ],
+    stateMutability: "view"
+  },
+  {
+    name: "getFileExpiry",
+    type: "function",
+    inputs: [{ name: "fileId", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    name: "getAccessInfo",
+    type: "function",
+    inputs: [{ name: "fileId", type: "uint256" }],
+    outputs: [
       { name: "isAuthorized", type: "bool" },
       { name: "hasDownloaded", type: "bool" }
     ],
+    stateMutability: "view"
+  },
+  {
+    name: "getFileOwner",
+    type: "function",
+    inputs: [{ name: "fileId", type: "uint256" }],
+    outputs: [{ name: "", type: "address" }],
     stateMutability: "view"
   },
   {
@@ -79,201 +111,94 @@ export const FHENIX_DROPBOX_ABI = [
     stateMutability: "view"
   },
   {
-    name: "verifyPassword",
+    name: "getRemainingDownloads",
     type: "function",
-    inputs: [
-      { name: "fileId", type: "uint256" },
-      { name: "password", type: "string" }
-    ],
+    inputs: [{ name: "fileId", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    name: "isFileExpired",
+    type: "function",
+    inputs: [{ name: "fileId", type: "uint256" }],
     outputs: [{ name: "", type: "bool" }],
     stateMutability: "view"
   },
   {
-    name: "files",
+    name: "deactivateFile",
     type: "function",
-    inputs: [{ name: "", type: "uint256" }],
-    outputs: [
-      { name: "ipfsHash", type: "string" },
-      { name: "createdAt", type: "uint256" },
-      { name: "price", type: "uint256" },
-      { name: "maxDownloads", type: "uint256" },
-      { name: "downloadCount", type: "uint256" },
-      { name: "expiresAt", type: "uint256" },
-      { name: "passwordHash", type: "bytes32" },
-      { name: "owner", type: "address" },
-      { name: "isActive", type: "bool" },
-      { name: "hasPassword", type: "bool" }
+    inputs: [{ name: "fileId", type: "uint256" }],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    name: "reactivateFile",
+    type: "function",
+    inputs: [{ name: "fileId", type: "uint256" }],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    name: "updateFileRules",
+    type: "function",
+    inputs: [
+      { name: "fileId", type: "uint256" },
+      { name: "newPrice", type: "uint256" },
+      { name: "newMaxDownloads", type: "uint256" },
+      { name: "newExpiryDays", type: "uint256" }
     ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    name: "revokeAccess",
+    type: "function",
+    inputs: [
+      { name: "fileId", type: "uint256" },
+      { name: "user", type: "address" }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    name: "withdraw",
+    type: "function",
+    inputs: [],
+    outputs: [],
+    stateMutability: "nonpayable"
+  },
+  {
+    name: "totalFiles",
+    type: "function",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
+    name: "totalDownloads",
+    type: "function",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
     stateMutability: "view"
   }
 ] as const
 
-// Contract address (update after deployment)
-export const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || "0x0000000000000000000000000000000000000000"
-
-// ─── Encryption Utilities (Mock) ────────────────────────────────────────────
-
-/**
- * Mock encryption function
- * In production Fhenix, this would use the Cofhe SDK to encrypt values
- *
- * @param value - The value to encrypt (simulated)
- * @returns A mock encrypted representation
- */
-export function encryptValue(value: string | number): string {
-  // This is a mock - in production, use Cofhe SDK
-  // return await cofhe.encryptUint64(BigInt(value))
-  return `encrypted_${value}`
-}
+// ─── Utility Functions ────────────────────────────────────────────────────────
 
 /**
  * Hash password for storage
- * In production Fhenix, this would be an encrypted comparison
  */
 export function hashPassword(password: string): `0x${string}` {
-  // Simple keccak256 hash for demo
-  // In production, this would use FHE encrypted comparison
   const { keccak256 } = require('viem')
   return keccak256(new TextEncoder().encode(password)) as `0x${string}`
 }
-
-// ─── FHE-Specific Hooks (Mock) ────────────────────────────────────────────────
-
-/**
- * useEncryptedUpload - Hook for uploading files with encrypted access rules
- *
- * In production, this would:
- * 1. Encrypt the price, maxDownloads, expiry using Cofhe SDK
- * 2. Send encrypted values to the contract
- * 3. Return decrypted verification results
- */
-export function useEncryptedUpload() {
-  // Mock implementation
-  return {
-    upload: async (params: {
-      ipfsHash: string
-      price: number
-      maxDownloads: number
-      expiryDays: number
-      password: string
-    }) => {
-      console.log("Uploading with encrypted parameters:", {
-        ...params,
-        price: encryptValue(params.price),
-        maxDownloads: encryptValue(params.maxDownloads),
-        expiryDays: encryptValue(params.expiryDays),
-        password: hashPassword(params.password)
-      })
-
-      // Simulate transaction
-      await new Promise(resolve => setTimeout(resolve, 2000))
-
-      return {
-        fileId: Math.floor(Math.random() * 1000),
-        transactionHash: "0x" + Math.random().toString(16).slice(2)
-      }
-    },
-    isLoading: false,
-    error: null
-  }
-}
-
-/**
- * useEncryptedAccessRequest - Hook for requesting access with encrypted verification
- *
- * In production, this would:
- * 1. Encrypt the payment amount
- * 2. Verify against encrypted price on-chain
- * 3. Decrypt the verification result
- */
-export function useEncryptedAccessRequest() {
-  return {
-    requestAccess: async (fileId: number, payment: number) => {
-      console.log("Requesting access with encrypted payment:", {
-        fileId,
-        payment: encryptValue(payment)
-      })
-
-      // Simulate transaction
-      await new Promise(resolve => setTimeout(resolve, 2000))
-
-      return {
-        success: true,
-        transactionHash: "0x" + Math.random().toString(16).slice(2)
-      }
-    },
-    isLoading: false,
-    error: null
-  }
-}
-
-/**
- * useEncryptedDownload - Hook for downloading with encrypted access check
- *
- * In production, this would:
- * 1. Verify access using encrypted comparison (downloadCount < maxDownloads)
- * 2. Check encrypted expiry time
- * 3. Return decrypted file access
- */
-export function useEncryptedDownload() {
-  return {
-    download: async (fileId: number) => {
-      console.log("Downloading with encrypted access verification:", {
-        fileId,
-        verification: "encrypted_comparison"
-      })
-
-      // Simulate transaction
-      await new Promise(resolve => setTimeout(resolve, 2000))
-
-      return {
-        success: true,
-        ipfsHash: "Qm" + Math.random().toString(36).slice(2, 15)
-      }
-    },
-    isLoading: false,
-    error: null
-  }
-}
-
-/**
- * useEncryptedFileDetails - Hook for fetching file details with encrypted values
- *
- * In production, this would:
- * 1. Fetch encrypted values from contract
- * 2. Decrypt only what the user is authorized to see
- * 3. Mask private values appropriately
- */
-export function useEncryptedFileDetails(fileId: number | null) {
-  // Mock data
-  const mockDetails = {
-    ipfsHash: "QmXoypizjW3WknFiJnKLwHCnL72vedxjQkDDP1mXWo6uco",
-    createdAt: Date.now() - 86400000 * 2,
-    price: 5000000, // 5 USDC in wei
-    maxDownloads: 100,
-    downloadCount: 12,
-    expiresAt: Date.now() + 86400000 * 365,
-    isActive: true,
-    hasPassword: true,
-    isAuthorized: false,
-    hasDownloaded: false
-  }
-
-  return {
-    data: fileId ? mockDetails : null,
-    isLoading: false,
-    error: null
-  }
-}
-
-// ─── Utility Functions ────────────────────────────────────────────────────────
 
 /**
  * Format USDC value for display
  */
 export function formatUSDC(value: bigint | number): string {
   const num = typeof value === 'bigint' ? Number(value) : value
-  return (num / 1000000).toFixed(2) // Assuming 6 decimals for USDC
+  return (num / 1000000).toFixed(2)
 }
 
 /**
@@ -288,14 +213,14 @@ export function parseUSDC(value: string): bigint {
  * Check if a file has expired
  */
 export function isExpired(expiresAt: number): boolean {
-  return expiresAt > 0 && Date.now() > expiresAt * 1000
+  return expiresAt > 0 && Date.now() / 1000 > expiresAt
 }
 
 /**
  * Get remaining downloads
  */
 export function getRemainingDownloads(maxDownloads: number, downloadCount: number): number {
-  if (maxDownloads === 0) return Infinity // Unlimited
+  if (maxDownloads === 0) return Infinity
   return Math.max(0, maxDownloads - downloadCount)
 }
 
@@ -320,25 +245,14 @@ export function getFileType(filename: string): string {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-export const SUPPORTED_CHAINS = {
-  arbitrumSepolia: {
-    id: 421614,
-    name: 'Arbitrum Sepolia',
-    rpcUrl: 'https://sepolia-rollup.arbitrum.io/rpc',
-    blockExplorer: 'https://sepolia.arbiscan.io'
-  },
-  sepolia: {
-    id: 11155111,
-    name: 'Ethereum Sepolia',
-    rpcUrl: 'https://ethereum-sepolia.publicnode.com',
-    blockExplorer: 'https://sepolia.etherscan.io'
-  },
-  baseSepolia: {
-    id: 84532,
-    name: 'Base Sepolia',
-    rpcUrl: 'https://sepolia.base.org',
-    blockExplorer: 'https://sepolia.basescan.org'
-  }
+export const RPC_URLS = {
+  sepolia: 'https://ethereum-sepolia.publicnode.com',
+  arbitrumSepolia: 'https://sepolia-rollup.arbitrum.io/rpc',
+  baseSepolia: 'https://sepolia.base.org'
 } as const
 
-export type SupportedChain = keyof typeof SUPPORTED_CHAINS
+export const BLOCK_EXPLORERS = {
+  sepolia: 'https://sepolia.etherscan.io',
+  arbitrumSepolia: 'https://sepolia.arbiscan.io',
+  baseSepolia: 'https://sepolia.basescan.org'
+} as const
