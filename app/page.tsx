@@ -3,7 +3,7 @@
 import React, { useRef, useEffect, useState, useCallback } from "react"
 import Link from "next/link"
 import { useAccount, useConnect, useDisconnect } from "wagmi"
-import { Shield, Lock, Key, Upload, Database, Eye, EyeOff, CheckCircle2, Clock, Users, FileText, ChevronDown, Zap, FolderPlus, Link2, Download, Share2, Settings, Code, Globe, CreditCard } from "lucide-react"
+import { Shield, Lock, Key, Upload, Database, Eye, EyeOff, CheckCircle2, FileText, ChevronDown, FolderPlus, Link2, Download, Share2, Settings } from "lucide-react"
 import { IntroAnimation, INTRO_DURATION_MS, HERO_REVEAL_MS } from "@/components/intro-animation"
 
 // ─── Intersection Observer hook ──────────────────────────────────────────────
