@@ -436,7 +436,6 @@ export default function FhenixDropBoxPage() {
 
           <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
             <Link href="#features" className="text-xs text-black/35 hover:text-black/70 transition-colors tracking-widest">Features</Link>
-            <Link href="#roadmap" className="text-xs text-black/35 hover:text-black/70 transition-colors tracking-widest">Roadmap</Link>
             <Link href="#how-it-works" className="text-xs text-black/35 hover:text-black/70 transition-colors tracking-widest">How it Works</Link>
             <Link href="/dashboard" className="text-xs text-black/35 hover:text-black/70 transition-colors tracking-widest">Dashboard</Link>
           </div>
