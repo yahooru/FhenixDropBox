@@ -2,13 +2,28 @@
 
 import { useState } from "react"
 import { useAccount } from "wagmi"
-import { Shield, Key, Bell, Moon, Globe, Wallet, ExternalLink, Copy, CheckCircle2, Loader2, Lock } from "lucide-react"
+import { Shield, Key, Bell, Moon, Wallet, ExternalLink, Copy, CheckCircle2, Loader2, Lock, Eye, EyeOff, Save } from "lucide-react"
+import { CONTRACT_ADDRESS } from "@/lib/fhenix"
 
 export default function SettingsPage() {
   const { address, isConnected } = useAccount()
   const [copied, setCopied] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [activeTab, setActiveTab] = useState("privacy")
+
+  // Settings state
+  const [settings, setSettings] = useState({
+    defaultPrice: "0",
+    defaultDownloads: "100",
+    defaultExpiry: "365",
+    hideFiles: true,
+    privateAnalytics: true,
+    anonymousUploads: false,
+    downloadAlerts: true,
+    purchaseAlerts: true,
+    weeklySummary: false,
+  })
 
   const handleCopyAddress = () => {
     if (address) {
@@ -18,22 +33,71 @@ export default function SettingsPage() {
     }
   }
 
+  const handleCopyContract = () => {
+    navigator.clipboard.writeText(CONTRACT_ADDRESS)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   const handleSave = async () => {
     setSaving(true)
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    await new Promise(resolve => setTimeout(resolve, 1000))
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
 
+  const updateSetting = (key: string, value: any) => {
+    setSettings(prev => ({ ...prev, [key]: value }))
+  }
+
+  const tabs = [
+    { id: "privacy", label: "Privacy", icon: Shield },
+    { id: "defaults", label: "Defaults", icon: Key },
+    { id: "notifications", label: "Notifications", icon: Bell },
+    { id: "appearance", label: "Appearance", icon: Moon },
+  ]
+
+  if (!isConnected) {
+    return (
+      <div className="max-w-2xl mx-auto text-center py-16">
+        <div className="w-16 h-16 rounded-2xl bg-[#111] flex items-center justify-center mx-auto mb-6">
+          <Wallet className="w-8 h-8 text-white" />
+        </div>
+        <h1 className="text-2xl font-medium mb-3">Connect Your Wallet</h1>
+        <p className="text-sm text-black/50">
+          Connect your wallet to access settings.
+        </p>
+      </div>
+    )
+  }
+
   return (
-    <div className="space-y-8 max-w-3xl">
+    <div className="space-y-8 max-w-4xl">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-medium">Settings</h1>
         <p className="text-sm text-black/50 mt-1">
-          Manage your account and preferences
+          Manage your account and privacy preferences
         </p>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-2 border-b border-black/[0.06] pb-4">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors ${
+              activeTab === tab.id
+                ? "bg-[#111] text-white"
+                : "text-black/50 hover:bg-black/[0.04]"
+            }`}
+          >
+            <tab.icon className="w-4 h-4" />
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       {/* Wallet Connection */}
@@ -44,204 +108,268 @@ export default function SettingsPage() {
             Wallet
           </h2>
         </div>
-        <div className="p-6">
-          {isConnected && address ? (
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-medium mb-1">Connected Wallet</div>
-                <div className="flex items-center gap-2">
-                  <code className="text-xs text-black/50 bg-black/[0.03] px-2 py-1 rounded">
-                    {address}
-                  </code>
-                </div>
-              </div>
+        <div className="p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium mb-1">Connected Wallet</div>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={handleCopyAddress}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs hover:bg-black/[0.04] transition-colors"
-                >
-                  {copied ? (
-                    <>
-                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                      Copied
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3 h-3" />
-                      Copy
-                    </>
-                  )}
-                </button>
-                <a
-                  href={`https://sepolia.arbiscan.io/address/${address}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-1.5 rounded-lg hover:bg-black/[0.04] transition-colors"
-                >
-                  <ExternalLink className="w-3.5 h-3.5 text-black/40" />
-                </a>
+                <code className="text-xs text-black/50 bg-black/[0.03] px-2 py-1 rounded font-mono">
+                  {address}
+                </code>
               </div>
             </div>
-          ) : (
-            <div className="text-center py-4">
-              <div className="text-sm text-black/50">Wallet not connected</div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleCopyAddress}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs hover:bg-black/[0.04] transition-colors"
+              >
+                {copied ? (
+                  <>
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3 h-3" />
+                    Copy
+                  </>
+                )}
+              </button>
+              <a
+                href={`https://sepolia.etherscan.io/address/${address}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-1.5 rounded-lg hover:bg-black/[0.04] transition-colors"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-black/40" />
+              </a>
             </div>
-          )}
+          </div>
+
+          <div className="flex items-center justify-between pt-4 border-t border-black/[0.06]">
+            <div>
+              <div className="text-sm font-medium mb-1">Contract Address</div>
+              <div className="flex items-center gap-2">
+                <code className="text-xs text-black/50 bg-black/[0.03] px-2 py-1 rounded font-mono">
+                  {CONTRACT_ADDRESS.slice(0, 10)}...{CONTRACT_ADDRESS.slice(-8)}
+                </code>
+              </div>
+            </div>
+            <button
+              onClick={handleCopyContract}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs hover:bg-black/[0.04] transition-colors"
+            >
+              <Copy className="w-3 h-3" />
+              Copy
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Privacy Settings */}
-      <div className="bg-white rounded-2xl border border-black/[0.07] overflow-hidden">
-        <div className="px-6 py-4 border-b border-black/[0.06]">
-          <h2 className="font-medium flex items-center gap-2">
-            <Shield className="w-4 h-4" />
-            Privacy Settings
-          </h2>
-        </div>
-        <div className="p-6 space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium">Hide My Files</div>
-              <div className="text-xs text-black/50">Prevent others from seeing your file list</div>
-            </div>
-            <button className="w-12 h-7 rounded-full bg-[#111] relative transition-colors">
-              <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-white shadow transition-transform translate-x-5" />
-            </button>
+      {activeTab === "privacy" && (
+        <div className="bg-white rounded-2xl border border-black/[0.07] overflow-hidden">
+          <div className="px-6 py-4 border-b border-black/[0.06]">
+            <h2 className="font-medium flex items-center gap-2">
+              <Shield className="w-4 h-4" />
+              Privacy Settings
+            </h2>
           </div>
+          <div className="p-6 space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-medium">Hide My Files</div>
+                <div className="text-xs text-black/50">Prevent others from seeing your file list</div>
+              </div>
+              <button
+                onClick={() => updateSetting("hideFiles", !settings.hideFiles)}
+                className={`w-12 h-7 rounded-full relative transition-colors ${
+                  settings.hideFiles ? "bg-[#111]" : "bg-black/[0.1]"
+                }`}
+              >
+                <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                  settings.hideFiles ? "left-[calc(100%-24px)]" : "left-1"
+                }`} />
+              </button>
+            </div>
 
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium">Private Analytics</div>
-              <div className="text-xs text-black/50">Track downloads without revealing data</div>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-medium">Private Analytics</div>
+                <div className="text-xs text-black/50">Track downloads without revealing data</div>
+              </div>
+              <button
+                onClick={() => updateSetting("privateAnalytics", !settings.privateAnalytics)}
+                className={`w-12 h-7 rounded-full relative transition-colors ${
+                  settings.privateAnalytics ? "bg-[#111]" : "bg-black/[0.1]"
+                }`}
+              >
+                <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                  settings.privateAnalytics ? "left-[calc(100%-24px)]" : "left-1"
+                }`} />
+              </button>
             </div>
-            <button className="w-12 h-7 rounded-full bg-[#111] relative transition-colors">
-              <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-white shadow transition-transform translate-x-5" />
-            </button>
-          </div>
 
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium">Anonymous Uploads</div>
-              <div className="text-xs text-black/50">Upload files without linking to your wallet</div>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-medium">Anonymous Uploads</div>
+                <div className="text-xs text-black/50">Upload files without linking to your wallet</div>
+              </div>
+              <button
+                onClick={() => updateSetting("anonymousUploads", !settings.anonymousUploads)}
+                className={`w-12 h-7 rounded-full relative transition-colors ${
+                  settings.anonymousUploads ? "bg-[#111]" : "bg-black/[0.1]"
+                }`}
+              >
+                <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                  settings.anonymousUploads ? "left-[calc(100%-24px)]" : "left-1"
+                }`} />
+              </button>
             </div>
-            <button className="w-12 h-7 rounded-full bg-black/[0.1] relative transition-colors">
-              <span className="absolute top-1 left-1 w-5 h-5 rounded-full bg-white shadow transition-transform" />
-            </button>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Default Access Rules */}
-      <div className="bg-white rounded-2xl border border-black/[0.07] overflow-hidden">
-        <div className="px-6 py-4 border-b border-black/[0.06]">
-          <h2 className="font-medium flex items-center gap-2">
-            <Key className="w-4 h-4" />
-            Default Access Rules
-          </h2>
-        </div>
-        <div className="p-6 space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-2">Default Price (USDC)</label>
-            <input
-              type="number"
-              defaultValue="0"
-              className="w-full px-4 py-2.5 rounded-xl border border-black/[0.1] bg-black/[0.02] text-sm focus:outline-none focus:border-black/[0.2]"
-            />
+      {activeTab === "defaults" && (
+        <div className="bg-white rounded-2xl border border-black/[0.07] overflow-hidden">
+          <div className="px-6 py-4 border-b border-black/[0.06]">
+            <h2 className="font-medium flex items-center gap-2">
+              <Key className="w-4 h-4" />
+              Default Access Rules
+            </h2>
+            <p className="text-xs text-black/50 mt-1">These will be applied to new file uploads</p>
           </div>
+          <div className="p-6 space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">Default Price (USDC)</label>
+              <input
+                type="number"
+                value={settings.defaultPrice}
+                onChange={(e) => updateSetting("defaultPrice", e.target.value)}
+                className="w-full px-4 py-2.5 rounded-xl border border-black/[0.1] bg-black/[0.02] text-sm focus:outline-none focus:border-black/[0.2]"
+              />
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-2">Default Max Downloads</label>
-            <input
-              type="number"
-              defaultValue="100"
-              className="w-full px-4 py-2.5 rounded-xl border border-black/[0.1] bg-black/[0.02] text-sm focus:outline-none focus:border-black/[0.2]"
-            />
-          </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Default Max Downloads</label>
+              <input
+                type="number"
+                value={settings.defaultDownloads}
+                onChange={(e) => updateSetting("defaultDownloads", e.target.value)}
+                className="w-full px-4 py-2.5 rounded-xl border border-black/[0.1] bg-black/[0.02] text-sm focus:outline-none focus:border-black/[0.2]"
+              />
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-2">Default Expiry (Days)</label>
-            <input
-              type="number"
-              defaultValue="365"
-              className="w-full px-4 py-2.5 rounded-xl border border-black/[0.1] bg-black/[0.02] text-sm focus:outline-none focus:border-black/[0.2]"
-            />
-          </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Default Expiry (Days)</label>
+              <input
+                type="number"
+                value={settings.defaultExpiry}
+                onChange={(e) => updateSetting("defaultExpiry", e.target.value)}
+                className="w-full px-4 py-2.5 rounded-xl border border-black/[0.1] bg-black/[0.02] text-sm focus:outline-none focus:border-black/[0.2]"
+              />
+            </div>
 
-          <div className="flex items-center justify-between pt-2">
-            <div className="flex items-center gap-2 text-xs text-emerald-600">
+            <div className="flex items-center gap-2 text-xs text-emerald-600 pt-2">
               <Lock className="w-3 h-3" />
-              All rules are encrypted
+              All rules are encrypted on-chain
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Notifications */}
-      <div className="bg-white rounded-2xl border border-black/[0.07] overflow-hidden">
-        <div className="px-6 py-4 border-b border-black/[0.06]">
-          <h2 className="font-medium flex items-center gap-2">
-            <Bell className="w-4 h-4" />
-            Notifications
-          </h2>
-        </div>
-        <div className="p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium">Download Alerts</div>
-              <div className="text-xs text-black/50">Get notified when someone downloads your file</div>
-            </div>
-            <button className="w-12 h-7 rounded-full bg-[#111] relative transition-colors">
-              <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-white shadow transition-transform translate-x-5" />
-            </button>
+      {activeTab === "notifications" && (
+        <div className="bg-white rounded-2xl border border-black/[0.07] overflow-hidden">
+          <div className="px-6 py-4 border-b border-black/[0.06]">
+            <h2 className="font-medium flex items-center gap-2">
+              <Bell className="w-4 h-4" />
+              Notifications
+            </h2>
           </div>
+          <div className="p-6 space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-medium">Download Alerts</div>
+                <div className="text-xs text-black/50">Get notified when someone downloads your file</div>
+              </div>
+              <button
+                onClick={() => updateSetting("downloadAlerts", !settings.downloadAlerts)}
+                className={`w-12 h-7 rounded-full relative transition-colors ${
+                  settings.downloadAlerts ? "bg-[#111]" : "bg-black/[0.1]"
+                }`}
+              >
+                <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                  settings.downloadAlerts ? "left-[calc(100%-24px)]" : "left-1"
+                }`} />
+              </button>
+            </div>
 
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium">New Purchase Alerts</div>
-              <div className="text-xs text-black/50">Get notified of new payments</div>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-medium">New Purchase Alerts</div>
+                <div className="text-xs text-black/50">Get notified of new payments</div>
+              </div>
+              <button
+                onClick={() => updateSetting("purchaseAlerts", !settings.purchaseAlerts)}
+                className={`w-12 h-7 rounded-full relative transition-colors ${
+                  settings.purchaseAlerts ? "bg-[#111]" : "bg-black/[0.1]"
+                }`}
+              >
+                <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                  settings.purchaseAlerts ? "left-[calc(100%-24px)]" : "left-1"
+                }`} />
+              </button>
             </div>
-            <button className="w-12 h-7 rounded-full bg-[#111] relative transition-colors">
-              <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-white shadow transition-transform translate-x-5" />
-            </button>
-          </div>
 
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium">Weekly Summary</div>
-              <div className="text-xs text-black/50">Receive weekly activity reports</div>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-medium">Weekly Summary</div>
+                <div className="text-xs text-black/50">Receive weekly activity reports</div>
+              </div>
+              <button
+                onClick={() => updateSetting("weeklySummary", !settings.weeklySummary)}
+                className={`w-12 h-7 rounded-full relative transition-colors ${
+                  settings.weeklySummary ? "bg-[#111]" : "bg-black/[0.1]"
+                }`}
+              >
+                <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                  settings.weeklySummary ? "left-[calc(100%-24px)]" : "left-1"
+                }`} />
+              </button>
             </div>
-            <button className="w-12 h-7 rounded-full bg-black/[0.1] relative transition-colors">
-              <span className="absolute top-1 left-1 w-5 h-5 rounded-full bg-white shadow transition-transform" />
-            </button>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Appearance */}
-      <div className="bg-white rounded-2xl border border-black/[0.07] overflow-hidden">
-        <div className="px-6 py-4 border-b border-black/[0.06]">
-          <h2 className="font-medium flex items-center gap-2">
-            <Moon className="w-4 h-4" />
-            Appearance
-          </h2>
-        </div>
-        <div className="p-6">
-          <div className="flex gap-3">
-            <button className="flex-1 p-4 rounded-xl border-2 border-[#111] bg-white">
-              <div className="w-8 h-8 rounded-lg bg-[#F5F4F0] mb-2" />
-              <div className="text-sm font-medium">Light</div>
-            </button>
-            <button className="flex-1 p-4 rounded-xl border border-black/[0.1] hover:border-black/[0.2] transition-colors">
-              <div className="w-8 h-8 rounded-lg bg-[#1a1a1a] mb-2" />
-              <div className="text-sm">Dark</div>
-            </button>
-            <button className="flex-1 p-4 rounded-xl border border-black/[0.1] hover:border-black/[0.2] transition-colors">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#F5F4F0] to-[#1a1a1a] mb-2" />
-              <div className="text-sm">System</div>
-            </button>
+      {activeTab === "appearance" && (
+        <div className="bg-white rounded-2xl border border-black/[0.07] overflow-hidden">
+          <div className="px-6 py-4 border-b border-black/[0.06]">
+            <h2 className="font-medium flex items-center gap-2">
+              <Moon className="w-4 h-4" />
+              Appearance
+            </h2>
+          </div>
+          <div className="p-6">
+            <div className="flex gap-3">
+              <button className="flex-1 p-4 rounded-xl border-2 border-[#111] bg-white">
+                <div className="w-8 h-8 rounded-lg bg-[#F5F4F0] mb-2" />
+                <div className="text-sm font-medium">Light</div>
+              </button>
+              <button className="flex-1 p-4 rounded-xl border border-black/[0.1] hover:border-black/[0.2] transition-colors">
+                <div className="w-8 h-8 rounded-lg bg-[#1a1a1a] mb-2" />
+                <div className="text-sm">Dark</div>
+              </button>
+              <button className="flex-1 p-4 rounded-xl border border-black/[0.1] hover:border-black/[0.2] transition-colors">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#F5F4F0] to-[#1a1a1a] mb-2" />
+                <div className="text-sm">System</div>
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Save Button */}
       <button
@@ -260,7 +388,10 @@ export default function SettingsPage() {
             Saved!
           </>
         ) : (
-          "Save Settings"
+          <>
+            <Save className="w-4 h-4" />
+            Save Settings
+          </>
         )}
       </button>
 
