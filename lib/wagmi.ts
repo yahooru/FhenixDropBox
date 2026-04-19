@@ -5,7 +5,7 @@ import { injected, coinbaseWallet, walletConnect } from 'wagmi/connectors'
 const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'demo'
 
 export const config = createConfig({
-  chains: [arbitrumSepolia, sepolia, baseSepolia, mainnet],
+  chains: [sepolia, arbitrumSepolia, baseSepolia, mainnet],
   connectors: [
     injected(),
     coinbaseWallet({ appName: 'FhenixDropBox' }),
