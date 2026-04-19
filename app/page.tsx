@@ -294,13 +294,6 @@ export default function FhenixDropBoxPage() {
               <Upload className="w-4 h-4" />
               Start Sharing
             </Link>
-            <Link
-              href="#roadmap"
-              className="px-6 py-3 rounded-xl border border-black/10 text-black/70 text-sm hover:border-black/20 hover:text-black transition-colors flex items-center gap-2"
-            >
-              <Lock className="w-4 h-4" />
-              View Roadmap
-            </Link>
           </div>
 
           {/* 3 metrics — staggered after title */}
