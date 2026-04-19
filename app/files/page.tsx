@@ -284,22 +284,22 @@ export default function FilesPage() {
                           </button>
                           {activeMenu === file.id && (
                             <div className="absolute right-0 mt-1 w-40 rounded-xl bg-white border border-black/[0.1] shadow-lg overflow-hidden z-10">
-                              <ComingSoon label="Coming in Wave 2">
+                              <ComingSoon label="Coming in Wave 3">
                                 <button className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-black/[0.04]">
                                   <Eye className="w-4 h-4" />
                                   View Preview
                                 </button>
                               </ComingSoon>
-                              <ComingSoon label="Coming in Wave 2">
+                              <ComingSoon label="Coming in Wave 3">
                                 <button className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-black/[0.04]">
                                   <FolderPlus className="w-4 h-4" />
                                   Add to Folder
                                 </button>
                               </ComingSoon>
-                              <ComingSoon label="Coming in Wave 2">
+                              <ComingSoon label="Coming in Wave 3">
                                 <button className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-black/[0.04]">
                                   <Link2 className="w-4 h-4" />
-                                  Set Link Expiry
+                                  Set Link Expiry     
                                 </button>
                               </ComingSoon>
                               <div className="border-t border-black/[0.06]" />
@@ -344,7 +344,7 @@ export default function FilesPage() {
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[#111] text-white px-6 py-3 rounded-xl flex items-center gap-4 shadow-2xl">
           <span className="text-sm">{selectedFiles.length} selected</span>
           <div className="flex gap-2">
-            <ComingSoon label="Coming in Wave 2">
+            <ComingSoon label="Coming in Wave 3">
               <button className="px-3 py-1.5 rounded-lg bg-white/10 text-xs opacity-50 cursor-not-allowed">
                 Deactivate
               </button>

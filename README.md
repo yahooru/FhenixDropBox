@@ -76,32 +76,33 @@ Core platform with essential privacy features:
 - File Upload with access control
 - Basic wallet connection
 
-### Wave 2 -  ce and previews:
+### Wave 2 - Available Now
 - File Preview (preview PDFs and images before purchase)
 - Multi-File Upload (upload up to 10 files at once)
 - Link Expiry (24h / 7d / 30d link expiration)
 - Batch Downloads (download multiple files)
 
 ### Wave 3 -  
+- File Preview (preview PDFs and images before purchase)
+- Multi-File Upload (upload up to 10 files at once)
+- Link Expiry (24h / 7d / 30d link expiration)
+- Batch Downloads (download multiple files)
+
+
+### Wave 4 -  
 Organization and developer tools:
 - Folder Organization (organize files in folders)
-- API Access (developer API for integrations)
 - Webhooks (real-time event notifications)
 - CDN Distribution (fast global file delivery)
 
-### Wave 4 -  
+
+### Wave 5 
+
 Collaboration and monetization:
 - Team Collaboration (share folders with teams)
 - Advanced Permissions (granular access control)
 - Subscriptions (recurring payments)
 - Social Sharing (share to social platforms)
-
-### Wave 5 
-
-- Prodtional ready 
-- finishing the things and feature 
-- add soem more cool adn important feature 
- 
 
 ## Getting Started
 

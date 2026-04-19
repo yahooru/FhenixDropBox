@@ -554,7 +554,7 @@ export default function UploadPage() {
             <div className="bg-white rounded-xl border border-black/[0.07] p-4 space-y-4">
               <h3 className="font-medium">Advanced Options</h3>
 
-              <ComingSoon label="Coming in Wave 2">
+              <ComingSoon label="Coming in Wave 3">
                 <div className="flex items-center justify-between p-4 bg-black/[0.02] rounded-lg opacity-50">
                   <div className="flex items-center gap-3">
                     <Link2 className="w-5 h-5 text-black/40" />
@@ -567,7 +567,7 @@ export default function UploadPage() {
                 </div>
               </ComingSoon>
 
-              <ComingSoon label="Coming in Wave 2">
+              <ComingSoon label="Coming in Wave 3">
                 <div className="flex items-center justify-between p-4 bg-black/[0.02] rounded-lg opacity-50">
                   <div className="flex items-center gap-3">
                     <Eye className="w-5 h-5 text-black/40" />
@@ -580,7 +580,7 @@ export default function UploadPage() {
                 </div>
               </ComingSoon>
 
-              <ComingSoon label="Coming in Wave 2">
+              <ComingSoon label="Coming in Wave 3">
                 <div className="flex items-center justify-between p-4 bg-black/[0.02] rounded-lg opacity-50">
                   <div className="flex items-center gap-3">
                     <FolderPlus className="w-5 h-5 text-black/40" />

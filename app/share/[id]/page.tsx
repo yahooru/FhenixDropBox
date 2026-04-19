@@ -4,7 +4,7 @@ import { useState, useEffect, use } from "react"
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi"
 import {
   Shield, Lock, Key, Eye, Download, DollarSign, CheckCircle2,
-  AlertCircle, Loader2, FileText, Wallet, ArrowLeft, Zap, XCircle
+  AlertCircle, Loader2, FileText, Wallet, ArrowLeft, Zap, XCircle, Copy, CheckCircle
 } from "lucide-react"
 import Link from "next/link"
 import { FHENIX_DROPBOX_ABI, CONTRACT_ADDRESS, hashPassword } from "@/lib/fhenix"
@@ -46,13 +46,13 @@ function ShareContent({ fileId }: { fileId: number }) {
   }, [])
 
   // Read file info from contract
-  const { data: fileInfo, isLoading: fileLoading, error: fileError } = useReadContract({
+  const { data: fileInfo, isLoading: fileLoading } = useReadContract({
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
     functionName: 'getFileInfo',
     args: [BigInt(fileId)],
     query: { enabled: mounted && fileId > 0 }
-  }) as { data: FileInfo | undefined, isLoading: boolean, error: any }
+  }) as { data: FileInfo | undefined, isLoading: boolean }
 
   // Read access info
   const { data: accessInfo } = useReadContract({
@@ -62,15 +62,6 @@ function ShareContent({ fileId }: { fileId: number }) {
     args: [BigInt(fileId)],
     query: { enabled: mounted && !!address && fileId > 0 }
   }) as { data: AccessInfo | undefined }
-
-  // Read encryption info
-  const { data: encryptionInfo } = useReadContract({
-    address: CONTRACT_ADDRESS as `0x${string}`,
-    abi: FHENIX_DROPBOX_ABI,
-    functionName: 'getEncryptionInfo',
-    args: [BigInt(fileId)],
-    query: { enabled: mounted && !!address && fileId > 0 }
-  }) as { data: EncryptionInfo | undefined }
 
   // Read file owner
   const { data: fileOwner } = useReadContract({
@@ -82,7 +73,7 @@ function ShareContent({ fileId }: { fileId: number }) {
   }) as { data: `0x${string}` | undefined }
 
   // Request access write
-  const { writeContract, data: accessTxHash, isPending: isRequestingAccess, error: writeError } = useWriteContract()
+  const { writeContract, data: accessTxHash, isPending: isRequestingAccess } = useWriteContract()
 
   // Wait for access transaction
   const { isLoading: isWaitingAccess, isSuccess: accessSuccess } = useWaitForTransactionReceipt({
@@ -106,12 +97,13 @@ function ShareContent({ fileId }: { fileId: number }) {
     setDownloading(true)
 
     try {
+      // Hash the access code using same method as upload
       const accessCodeHash = accessCode
         ? hashPassword(accessCode) as `0x${string}`
         : '0x0000000000000000000000000000000000000000000000000000000000000000' as const
 
       // If file has a price, pay for access
-      if (fileInfo.price > 0) {
+      if (fileInfo.price > 0n) {
         writeContract({
           address: CONTRACT_ADDRESS as `0x${string}`,
           abi: FHENIX_DROPBOX_ABI,
@@ -131,7 +123,7 @@ function ShareContent({ fileId }: { fileId: number }) {
         })
       }
     } catch (err: any) {
-      setError(err.message || "Failed to request access")
+      setError(err.shortMessage || err.message || "Failed to request access")
       setDownloading(false)
     }
   }
@@ -143,7 +135,7 @@ function ShareContent({ fileId }: { fileId: number }) {
     setError(null)
 
     try {
-      // First, call on-chain downloadFile to record the download
+      // Call on-chain downloadFile to record the download
       downloadFile({
         address: CONTRACT_ADDRESS as `0x${string}`,
         abi: FHENIX_DROPBOX_ABI,
@@ -152,7 +144,7 @@ function ShareContent({ fileId }: { fileId: number }) {
         chainId: sepolia.id,
       })
     } catch (err: any) {
-      setError(err.message || "Failed to download")
+      setError(err.shortMessage || err.message || "Failed to download")
       setDownloading(false)
     }
   }
@@ -160,7 +152,7 @@ function ShareContent({ fileId }: { fileId: number }) {
   // Handle download success - fetch from IPFS
   useEffect(() => {
     if (downloadSuccess && fileInfo?.ipfsHash && !downloaded) {
-      // Fetch file from IPFS
+      // Fetch file from IPFS and trigger download
       downloadFromIPFS(fileInfo.ipfsHash, `file_${fileId}`)
         .then(() => {
           setDownloaded(true)
@@ -168,7 +160,7 @@ function ShareContent({ fileId }: { fileId: number }) {
         })
         .catch((err) => {
           console.error('IPFS download error:', err)
-          // Even if IPFS fails, the on-chain record is made
+          // Show success anyway since on-chain record is made
           setDownloaded(true)
           setDownloading(false)
         })
@@ -189,7 +181,7 @@ function ShareContent({ fileId }: { fileId: number }) {
   const needsAccessCode = fileInfo?.hasPassword ?? false
   const remainingDownloads = fileInfo?.maxDownloads
     ? Number(fileInfo.maxDownloads) - Number(fileInfo.downloadCount)
-    : '∞'
+    : Infinity
   const isOwner = fileOwner?.toLowerCase() === address?.toLowerCase()
 
   // ─── Render ─────────────────────────────────────────────────────────────────
@@ -261,7 +253,9 @@ function ShareContent({ fileId }: { fileId: number }) {
               </h1>
               {fileInfo && (
                 <div className="flex items-center gap-4 text-sm text-black/50">
-                  <span>{remainingDownloads} downloads left</span>
+                  <span>
+                    {remainingDownloads === Infinity ? "∞ downloads" : `${remainingDownloads} downloads left`}
+                  </span>
                   {fileInfo.contentEncrypted && (
                     <>
                       <span>•</span>
@@ -439,13 +433,14 @@ function ShareContent({ fileId }: { fileId: number }) {
                     <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
                     <div className="text-sm font-medium text-emerald-700">Download Complete</div>
                     <div className="text-xs text-emerald-600 mt-1">
-                      File retrieved from IPFS{fileInfo?.contentEncrypted ? " and decrypted" : ""}
+                      File retrieved from IPFS
                     </div>
                   </div>
                 )}
 
                 {alreadyDownloaded && (
                   <div className="text-center p-4 bg-black/[0.02] rounded-xl">
+                    <CheckCircle className="w-6 h-6 text-black/30 mx-auto mb-2" />
                     <div className="text-sm text-black/50">
                       You have already downloaded this file
                     </div>
@@ -470,7 +465,10 @@ function ShareContent({ fileId }: { fileId: number }) {
 
 export default function SharePage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params)
-  const fileId = params.id ? parseInt(params.id, 10) : 0
+
+  // Validate file ID is a positive integer
+  const fileIdFromParams = parseInt(params.id, 10)
+  const fileId = isNaN(fileIdFromParams) || fileIdFromParams < 0 ? 0 : fileIdFromParams
 
   return (
     <ShareContent fileId={fileId} />
