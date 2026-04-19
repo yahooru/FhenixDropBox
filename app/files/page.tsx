@@ -3,16 +3,39 @@
 import { useState } from "react"
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi"
 import Link from "next/link"
-import { Search, FileText, MoreVertical, Download, Share2, Trash2, ExternalLink, Lock, CheckCircle2, Loader2 } from "lucide-react"
+import { Search, FileText, MoreVertical, Download, Share2, Trash2, ExternalLink, Lock, CheckCircle2, Loader2, ArrowLeft, Plus, Eye, EyeOff, Shield, FolderPlus, Link2 } from "lucide-react"
 import { FHENIX_DROPBOX_ABI, CONTRACT_ADDRESS } from "@/lib/fhenix"
 
-const fileTypeIcons: Record<string, string> = {
-  pdf: "bg-red-50 text-red-600",
-  xlsx: "bg-emerald-50 text-emerald-600",
-  docx: "bg-blue-50 text-blue-600",
-  zip: "bg-amber-50 text-amber-600",
-  pptx: "bg-orange-50 text-orange-600",
-  default: "bg-gray-50 text-gray-600"
+// Coming soon tooltip component
+function ComingSoon({ children, label }: { children: React.ReactNode; label: string }) {
+  const [showTooltip, setShowTooltip] = useState(false)
+
+  return (
+    <div className="relative">
+      <div
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+        className="cursor-not-allowed opacity-50"
+      >
+        {children}
+      </div>
+      {showTooltip && (
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#111] text-white text-xs rounded-lg whitespace-nowrap z-50">
+          {label}
+          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#111]" />
+        </div>
+      )}
+    </div>
+  )
+}
+
+const fileTypeColors: Record<string, { bg: string; text: string }> = {
+  pdf: { bg: "bg-red-50", text: "text-red-600" },
+  xlsx: { bg: "bg-emerald-50", text: "text-emerald-600" },
+  docx: { bg: "bg-blue-50", text: "text-blue-600" },
+  zip: { bg: "bg-amber-50", text: "text-amber-600" },
+  pptx: { bg: "bg-orange-50", text: "text-orange-600" },
+  default: { bg: "bg-gray-50", text: "text-gray-600" }
 }
 
 export default function FilesPage() {
@@ -41,23 +64,25 @@ export default function FilesPage() {
   const totalFiles = stats ? Number(stats[0]) : 0
   const totalDownloads = stats ? Number(stats[1]) : 0
   const totalVolume = stats ? Number(stats[2]) / 1e6 : 0
+  const myFileCount = stats ? Number(stats[3]) : 0
 
-  // Get file details for each file
   const fileIds = myFileIds || []
 
-  const filteredFiles = fileIds.map((id: bigint) => ({
+  // Filter files
+  const filteredFiles = fileIds.map((id: bigint, index: number) => ({
     id: id.toString(),
     name: `File #${id.toString()}`,
     size: "N/A",
     type: "file",
     downloads: 0,
     price: "0 USDC",
-    status: "active" as const
+    status: "active" as const,
+    uploadedAt: `${index + 1} day${index > 0 ? 's' : ''} ago`
   }))
 
   const toggleSelectFile = (id: string) => {
-    setSelectedFiles((prev) =>
-      prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id]
+    setSelectedFiles(prev =>
+      prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]
     )
   }
 
@@ -65,46 +90,68 @@ export default function FilesPage() {
     if (selectedFiles.length === filteredFiles.length) {
       setSelectedFiles([])
     } else {
-      setSelectedFiles(filteredFiles.map((f) => f.id))
+      setSelectedFiles(filteredFiles.map(f => f.id))
     }
+  }
+
+  const { writeContract, isPending: isDeactivating } = useWriteContract()
+  const { isLoading: isWaitingTx } = useWaitForTransactionReceipt({ hash: undefined as any })
+
+  const handleDeactivate = (fileId: string) => {
+    writeContract({
+      address: CONTRACT_ADDRESS as `0x${string}`,
+      abi: FHENIX_DROPBOX_ABI,
+      functionName: 'deactivateFile',
+      args: [BigInt(fileId)],
+    })
   }
 
   if (!isConnected) {
     return (
       <div className="max-w-2xl mx-auto text-center py-16">
+        <Link href="/" className="inline-flex items-center gap-2 text-sm text-black/50 hover:text-black mb-8">
+          <ArrowLeft className="w-4 h-4" />
+          Back to Home
+        </Link>
         <div className="w-16 h-16 rounded-2xl bg-[#111] flex items-center justify-center mx-auto mb-6">
           <Lock className="w-8 h-8 text-white" />
         </div>
         <h1 className="text-2xl font-medium mb-3">Connect Your Wallet</h1>
         <p className="text-sm text-black/50">
-          Connect your wallet to view and manage your uploaded files.
+          Connect your wallet to view and manage your files.
         </p>
       </div>
     )
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8 max-w-6xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-medium">My Files</h1>
-          <p className="text-sm text-black/50 mt-1">
-            Manage and monitor your uploaded files on-chain
+          <div className="flex items-center gap-3 mb-2">
+            <Link href="/dashboard" className="p-2 rounded-lg hover:bg-black/[0.04] transition-colors">
+              <ArrowLeft className="w-5 h-5" />
+            </Link>
+            <h1 className="text-2xl font-medium">My Files</h1>
+          </div>
+          <p className="text-sm text-black/50 ml-11">
+            Manage and monitor your uploaded files
           </p>
         </div>
         <Link
           href="/upload"
           className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#111] text-white text-sm hover:bg-[#333] transition-colors"
         >
-          Upload New
+          <Plus className="w-4 h-4" />
+          Upload
         </Link>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-black/[0.07] p-4">
-          <div className="text-2xl font-medium">{filesLoading ? "..." : fileIds.length}</div>
+          <div className="text-2xl font-medium">{filesLoading ? "..." : myFileCount}</div>
           <div className="text-xs text-black/40">My Files</div>
         </div>
         <div className="bg-white rounded-xl border border-black/[0.07] p-4">
@@ -117,7 +164,7 @@ export default function FilesPage() {
         </div>
         <div className="bg-white rounded-xl border border-black/[0.07] p-4">
           <div className="text-2xl font-medium">{totalFiles}</div>
-          <div className="text-xs text-black/40">Total Files</div>
+          <div className="text-xs text-black/40">Total Platform</div>
         </div>
       </div>
 
@@ -130,14 +177,14 @@ export default function FilesPage() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search files..."
-            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-black/[0.1] bg-white text-sm focus:outline-none focus:border-black/[0.2]"
+            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-black/[0.1] bg-white text-sm"
           />
         </div>
         <div className="flex gap-2">
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
-            className="px-4 py-2.5 rounded-xl border border-black/[0.1] bg-white text-sm focus:outline-none focus:border-black/[0.2]"
+            className="px-4 py-2.5 rounded-xl border border-black/[0.1] bg-white text-sm"
           >
             <option value="all">All Status</option>
             <option value="active">Active</option>
@@ -159,8 +206,9 @@ export default function FilesPage() {
             <div className="text-sm text-black/50 mb-4">No files uploaded yet</div>
             <Link
               href="/upload"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#111] text-white text-sm hover:bg-[#333] transition-colors"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#111] text-white text-sm"
             >
+              <Plus className="w-4 h-4" />
               Upload Your First File
             </Link>
           </div>
@@ -177,26 +225,16 @@ export default function FilesPage() {
                       className="rounded border-black/[0.2]"
                     />
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-black/40 uppercase tracking-wider">
-                    File ID
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-black/40 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-black/40 uppercase tracking-wider">
-                    Downloads
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-black/40 uppercase tracking-wider">
-                    Actions
-                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-black/40 uppercase">File</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-black/40 uppercase">Uploaded</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-black/40 uppercase">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-black/40 uppercase">Downloads</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-black/40 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredFiles.map((file) => (
-                  <tr
-                    key={file.id}
-                    className="border-b border-black/[0.04] hover:bg-black/[0.02] transition-colors"
-                  >
+                  <tr key={file.id} className="border-b border-black/[0.04] hover:bg-black/[0.02] transition-colors">
                     <td className="px-4 py-4">
                       <input
                         type="checkbox"
@@ -207,8 +245,8 @@ export default function FilesPage() {
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${fileTypeIcons.default}`}>
-                          <FileText className="w-5 h-5" />
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${fileTypeColors.default.bg}`}>
+                          <FileText className={`w-5 h-5 ${fileTypeColors.default.text}`} />
                         </div>
                         <div>
                           <div className="font-medium text-sm">{file.name}</div>
@@ -216,14 +254,17 @@ export default function FilesPage() {
                         </div>
                       </div>
                     </td>
+                    <td className="px-4 py-4 text-sm text-black/50">
+                      {file.uploadedAt}
+                    </td>
                     <td className="px-4 py-4">
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        {file.status === "active" ? "Active" : "Paused"}
+                        Active
                       </span>
                     </td>
-                    <td className="px-4 py-4">
-                      <div className="text-sm">{file.downloads}</div>
+                    <td className="px-4 py-4 text-sm">
+                      {file.downloads}
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex items-center justify-end gap-1">
@@ -234,12 +275,44 @@ export default function FilesPage() {
                         >
                           <Share2 className="w-4 h-4 text-black/40" />
                         </Link>
-                        <button
-                          className="p-2 rounded-lg hover:bg-black/[0.04] transition-colors"
-                          title="More"
-                        >
-                          <MoreVertical className="w-4 h-4 text-black/40" />
-                        </button>
+                        <div className="relative">
+                          <button
+                            onClick={() => setActiveMenu(activeMenu === file.id ? null : file.id)}
+                            className="p-2 rounded-lg hover:bg-black/[0.04] transition-colors"
+                          >
+                            <MoreVertical className="w-4 h-4 text-black/40" />
+                          </button>
+                          {activeMenu === file.id && (
+                            <div className="absolute right-0 mt-1 w-40 rounded-xl bg-white border border-black/[0.1] shadow-lg overflow-hidden z-10">
+                              <ComingSoon label="Coming in Wave 2">
+                                <button className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-black/[0.04]">
+                                  <Eye className="w-4 h-4" />
+                                  View Preview
+                                </button>
+                              </ComingSoon>
+                              <ComingSoon label="Coming in Wave 2">
+                                <button className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-black/[0.04]">
+                                  <FolderPlus className="w-4 h-4" />
+                                  Add to Folder
+                                </button>
+                              </ComingSoon>
+                              <ComingSoon label="Coming in Wave 2">
+                                <button className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-black/[0.04]">
+                                  <Link2 className="w-4 h-4" />
+                                  Set Link Expiry
+                                </button>
+                              </ComingSoon>
+                              <div className="border-t border-black/[0.06]" />
+                              <button
+                                onClick={() => handleDeactivate(file.id)}
+                                className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-black/[0.04] text-red-600"
+                              >
+                                <EyeOff className="w-4 h-4" />
+                                Deactivate
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </td>
                   </tr>
@@ -271,19 +344,18 @@ export default function FilesPage() {
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[#111] text-white px-6 py-3 rounded-xl flex items-center gap-4 shadow-2xl">
           <span className="text-sm">{selectedFiles.length} selected</span>
           <div className="flex gap-2">
-            <button className="px-3 py-1.5 rounded-lg bg-white/10 text-xs hover:bg-white/20 transition-colors">
-              Deactivate
-            </button>
-            <button className="px-3 py-1.5 rounded-lg bg-white/10 text-xs hover:bg-white/20 transition-colors">
-              Delete
+            <ComingSoon label="Coming in Wave 2">
+              <button className="px-3 py-1.5 rounded-lg bg-white/10 text-xs opacity-50 cursor-not-allowed">
+                Deactivate
+              </button>
+            </ComingSoon>
+            <button
+              onClick={() => setSelectedFiles([])}
+              className="px-3 py-1.5 rounded-lg bg-white/10 text-xs hover:bg-white/20"
+            >
+              Clear
             </button>
           </div>
-          <button
-            onClick={() => setSelectedFiles([])}
-            className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
-          >
-            Close
-          </button>
         </div>
       )}
     </div>
