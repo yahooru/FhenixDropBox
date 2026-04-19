@@ -4,7 +4,7 @@ import "dotenv/config";
 
 const SEPOLIA_RPC_URL = process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia.publicnode.com";
 const ARBITRUM_SEPOLIA_RPC_URL = process.env.ARBITRUM_SEPOLIA_RPC_URL || "https://sepolia-rollup.arbitrum.io/rpc";
-const PRIVATE_KEY = process.env.PRIVATE_KEY || "0x0000000000000000000000000000000000000000000000000000000000000000";
+const PRIVATE_KEY = process.env.PRIVATE_KEY || "";
 const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || "";
 
 const config: HardhatUserConfig = {
@@ -23,17 +23,17 @@ const config: HardhatUserConfig = {
     },
     sepolia: {
       url: SEPOLIA_RPC_URL,
-      accounts: [PRIVATE_KEY],
+      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
       chainId: 11155111
     },
     arbitrumSepolia: {
       url: ARBITRUM_SEPOLIA_RPC_URL,
-      accounts: [PRIVATE_KEY],
+      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
       chainId: 421614
     },
     baseSepolia: {
       url: "https://sepolia.base.org",
-      accounts: [PRIVATE_KEY],
+      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
       chainId: 84532
     }
   },
