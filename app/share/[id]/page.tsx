@@ -22,6 +22,25 @@ interface FileInfo {
   contentEncrypted: boolean
 }
 
+// Helper to safely access tuple data
+function getFileInfoData(data: any): FileInfo | undefined {
+  if (!data) return undefined
+  // data is a tuple returned from contract
+  if (Array.isArray(data)) {
+    return {
+      ipfsHash: data[0] || '',
+      createdAt: data[1] || BigInt(0),
+      price: data[2] || BigInt(0),
+      maxDownloads: data[3] || BigInt(0),
+      downloadCount: data[4] || BigInt(0),
+      isActive: data[5] || false,
+      hasPassword: data[6] || false,
+      contentEncrypted: data[7] || false
+    }
+  }
+  return data as FileInfo
+}
+
 interface AccessInfo {
   isAuthorized: boolean
   hasDownloaded: boolean
@@ -32,7 +51,7 @@ interface EncryptionInfo {
   isOwnerOrAuthorized: boolean
 }
 
-function ShareContent({ fileId }: { fileId: number }) {
+function ShareContent({ fileId, shareHash }: { fileId: number; shareHash: string }) {
   const { address, isConnected } = useAccount()
   const [accessCode, setAccessCode] = useState("")
   const [showAccessCode, setShowAccessCode] = useState(false)
@@ -46,13 +65,15 @@ function ShareContent({ fileId }: { fileId: number }) {
   }, [])
 
   // Read file info from contract
-  const { data: fileInfo, isLoading: fileLoading } = useReadContract({
+  const { data: rawFileInfo, isLoading: fileLoading } = useReadContract({
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
     functionName: 'getFileInfo',
     args: [BigInt(fileId)],
     query: { enabled: mounted && fileId > 0 }
-  }) as { data: FileInfo | undefined, isLoading: boolean }
+  })
+
+  const fileInfo = getFileInfoData(rawFileInfo)
 
   // Read access info
   const { data: accessInfo } = useReadContract({
@@ -465,6 +486,12 @@ function ShareContent({ fileId }: { fileId: number }) {
 
 export default function SharePage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params)
+  const [mounted, setMounted] = useState(false)
+  const [shareHash, setShareHash] = useState('')
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Validate file ID is a positive integer
   const fileIdFromParams = parseInt(params.id, 10)
@@ -481,10 +508,21 @@ export default function SharePage(props: { params: Promise<{ id: string }> }) {
     return Math.abs(hash).toString(16).padStart(8, '0').toUpperCase()
   }
 
-  const urlHash = generateHash(fileId.toString())
-  const providedHash = params.h || ''
+  useEffect(() => {
+    if (mounted && fileId > 0) {
+      setShareHash(generateHash(fileId.toString()))
+    }
+  }, [fileId, mounted])
 
   return (
-    <ShareContent fileId={fileId} />
+    <div>
+      {mounted && fileId > 0 && (
+        <div className="hidden">
+          {/* Store hash in data attribute for client-side access */}
+          <div id="share-hash" data-hash={shareHash} />
+        </div>
+      )}
+      <ShareContent fileId={fileId} shareHash={shareHash} />
+    </div>
   )
 }

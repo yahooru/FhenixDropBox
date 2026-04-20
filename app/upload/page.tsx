@@ -669,13 +669,15 @@ export default function UploadPage() {
             <h3 className="text-sm font-medium">Share Links</h3>
             {fileIds.map((fileId, index) => {
               const fileName = uploadedFiles[index]?.name || `File #${fileId.toString()}`
+              const linkHash = generateHash(`${fileId.toString()}-${Date.now()}`)
+              const shareUrl = `${baseUrl}/share/${fileId.toString()}?h=${linkHash}`
               return (
                 <div key={fileId.toString()} className="flex items-center gap-2 p-3 bg-black/[0.02] rounded-lg">
                   <FileText className="w-4 h-4 text-black/40 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm truncate">{fileName}</div>
                     <div className="text-xs text-black/40 font-mono">
-                      {baseUrl}/share/{fileId.toString()}
+                      {shareUrl}
                     </div>
                   </div>
                   <button
@@ -691,10 +693,7 @@ export default function UploadPage() {
                     QR
                   </button>
                   <button
-                    onClick={() => {
-                      const link = `${baseUrl}/share/${fileId.toString()}`
-                      copyToClipboard(link)
-                    }}
+                    onClick={() => copyToClipboard(shareUrl)}
                     className="px-3 py-1.5 bg-[#111] text-white text-xs rounded-lg shrink-0 flex items-center gap-1"
                   >
                     <Copy size={12} />
@@ -764,25 +763,31 @@ function Copy({ size = 16 }: { size?: number }) {
 
 // QR Code modal component
 function QRModal({ fileId, fileName, onClose }: { fileId: bigint; fileName: string; onClose: () => void }) {
+  const [mounted, setMounted] = useState(false)
   const [shareUrl, setShareUrl] = useState('')
+  const [urlHash, setUrlHash] = useState('')
 
   useEffect(() => {
-    setShareUrl(`${window.location.origin}/share/${fileId.toString()}`)
-  }, [fileId])
+    setMounted(true)
+  }, [])
 
-  // Generate hash for the share URL
-  const generateHash = (input: string): string => {
-    let hash = 0
-    for (let i = 0; i < input.length; i++) {
-      const char = input.charCodeAt(i)
-      hash = ((hash << 5) - hash) + char
-      hash = hash & hash
+  useEffect(() => {
+    if (mounted) {
+      const base = `${window.location.origin}/share/${fileId.toString()}`
+      setShareUrl(base)
+      // Generate hash from file ID only (stable, no hydration issues)
+      const hash = Math.abs(Array.from(fileId.toString()).reduce((acc, c, i) => {
+        return acc + c.charCodeAt(0) * (i + 1)
+      }, 0)).toString(16).padStart(8, '0').toUpperCase()
+      setUrlHash(hash)
     }
-    return Math.abs(hash).toString(16).padStart(8, '0').toUpperCase()
-  }
+  }, [fileId, mounted])
 
-  const urlHash = generateHash(shareUrl)
-  const hashedUrl = `${shareUrl}?h=${urlHash}`
+  const hashedUrl = shareUrl ? `${shareUrl}?h=${urlHash}` : ''
+
+  if (!mounted) {
+    return null
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
