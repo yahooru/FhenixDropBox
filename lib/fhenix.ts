@@ -7,7 +7,7 @@
 import { sepolia, arbitrumSepolia } from 'wagmi/chains'
 
 // Contract address
-export const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '0x4a69Db2288Bb9868Bf6eB87FFBcfaeebB51231e8'
+export const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '0x820D442CC6BB930307183926C7805212668C7Cff'
 
 // Supported chains
 export const SUPPORTED_CHAINS = [sepolia, arbitrumSepolia]
@@ -22,7 +22,9 @@ export const FHENIX_DROPBOX_ABI = [
       { name: "price_", type: "uint256" },
       { name: "maxDownloads_", type: "uint256" },
       { name: "expiryDays_", type: "uint256" },
-      { name: "passwordHash_", type: "bytes32" }
+      { name: "accessCodeHash_", type: "bytes32" },
+      { name: "contentEncrypted_", type: "bool" },
+      { name: "encryptionKeyHash_", type: "bytes32" }
     ],
     outputs: [{ name: "", type: "uint256" }],
     stateMutability: "nonpayable"
@@ -30,9 +32,23 @@ export const FHENIX_DROPBOX_ABI = [
   {
     name: "requestAccess",
     type: "function",
-    inputs: [{ name: "fileId", type: "uint256" }],
+    inputs: [
+      { name: "fileId", type: "uint256" },
+      { name: "accessCode_", type: "bytes32" }
+    ],
     outputs: [],
     stateMutability: "payable"
+  },
+  {
+    name: "requestAccessERC20",
+    type: "function",
+    inputs: [
+      { name: "fileId", type: "uint256" },
+      { name: "accessCode_", type: "bytes32" },
+      { name: "amount_", type: "uint256" }
+    ],
+    outputs: [],
+    stateMutability: "nonpayable"
   },
   {
     name: "downloadFile",
@@ -40,16 +56,6 @@ export const FHENIX_DROPBOX_ABI = [
     inputs: [{ name: "fileId", type: "uint256" }],
     outputs: [],
     stateMutability: "nonpayable"
-  },
-  {
-    name: "verifyPassword",
-    type: "function",
-    inputs: [
-      { name: "fileId", type: "uint256" },
-      { name: "password", type: "string" }
-    ],
-    outputs: [{ name: "", type: "bool" }],
-    stateMutability: "view"
   },
   {
     name: "getFileInfo",
@@ -62,7 +68,8 @@ export const FHENIX_DROPBOX_ABI = [
       { name: "maxDownloads", type: "uint256" },
       { name: "downloadCount", type: "uint256" },
       { name: "isActive", type: "bool" },
-      { name: "hasPassword", type: "bool" }
+      { name: "hasPassword", type: "bool" },
+      { name: "contentEncrypted", type: "bool" }
     ],
     stateMutability: "view"
   },
@@ -88,6 +95,16 @@ export const FHENIX_DROPBOX_ABI = [
     type: "function",
     inputs: [{ name: "fileId", type: "uint256" }],
     outputs: [{ name: "", type: "address" }],
+    stateMutability: "view"
+  },
+  {
+    name: "getEncryptionInfo",
+    type: "function",
+    inputs: [{ name: "fileId", type: "uint256" }],
+    outputs: [
+      { name: "contentEncrypted", type: "bool" },
+      { name: "isOwnerOrAuthorized", type: "bool" }
+    ],
     stateMutability: "view"
   },
   {
@@ -124,6 +141,13 @@ export const FHENIX_DROPBOX_ABI = [
     stateMutability: "view"
   },
   {
+    name: "getLatestFileId",
+    type: "function",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view"
+  },
+  {
     name: "deactivateFile",
     type: "function",
     inputs: [{ name: "fileId", type: "uint256" }],
@@ -144,7 +168,8 @@ export const FHENIX_DROPBOX_ABI = [
       { name: "fileId", type: "uint256" },
       { name: "newPrice", type: "uint256" },
       { name: "newMaxDownloads", type: "uint256" },
-      { name: "newExpiryDays", type: "uint256" }
+      { name: "newExpiryDays", type: "uint256" },
+      { name: "newAccessCodeHash", type: "bytes32" }
     ],
     outputs: [],
     stateMutability: "nonpayable"

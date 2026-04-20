@@ -382,8 +382,8 @@ export default function SettingsPage() {
               description="Upload files without linking to your wallet address"
               enabled={settings.anonymousUploads}
               onToggle={() => updateSetting("anonymousUploads", !settings.anonymousUploads)}
-              featureInfo={{ wave: "Wave 2", label: "Coming Soon" }}
-              isLast
+              featureInfo={{ wave: "Wave 3", label: "Coming Soon" }}
+              isLast  
             />
           </div>
           <div className="px-6 py-3 bg-emerald-50/60 border-t border-emerald-100/50 flex items-center gap-2">
@@ -479,28 +479,28 @@ export default function SettingsPage() {
               description="Get notified when someone downloads your file"
               enabled={settings.downloadAlerts}
               onToggle={() => updateSetting("downloadAlerts", !settings.downloadAlerts)}
-              featureInfo={{ wave: "Wave 2", label: "Coming Soon" }}
+              featureInfo={{ wave: "Wave 3", label: "Coming Soon" }}
             />
             <SettingRow
               title="New Purchase Alerts"
               description="Get notified of new payments to your files"
               enabled={settings.purchaseAlerts}
               onToggle={() => updateSetting("purchaseAlerts", !settings.purchaseAlerts)}
-              featureInfo={{ wave: "Wave 2", label: "Coming Soon" }}
+              featureInfo={{ wave: "Wave 3", label: "Coming Soon" }}
             />
             <SettingRow
               title="Weekly Summary"
               description="Receive a weekly report of your file activity"
               enabled={settings.weeklySummary}
               onToggle={() => updateSetting("weeklySummary", !settings.weeklySummary)}
-              featureInfo={{ wave: "Wave 2", label: "Coming Soon" }}
+              featureInfo={{ wave: "Wave 3", label: "Coming Soon" }}
               isLast
             />
           </div>
           <div className="px-6 py-3 bg-amber-50/60 border-t border-amber-100/50 flex items-center gap-2">
             <Zap className="w-3.5 h-3.5 text-amber-600" />
             <span className="text-xs text-amber-700">
-              Notifications are planned for Wave 2 — wallet-based alerts coming soon
+              Notifications are planned for Wave 3 — wallet-based alerts coming soon
             </span>
           </div>
         </div>

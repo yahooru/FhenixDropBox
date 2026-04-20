@@ -1,14 +1,52 @@
 "use client"
 
 import { useState, useCallback, useEffect } from "react"
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi"
-import { Upload, X, Lock, Key, Clock, Download, DollarSign, Eye, EyeOff, Loader2, CheckCircle2, AlertCircle, FileText, ArrowLeft, Plus, Files, EyeOff as BlurIcon, FolderPlus, Link2 } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract } from "wagmi"
+import {
+  Upload, X, Lock, Key, Clock, Download, DollarSign, Eye, EyeOff,
+  Loader2, CheckCircle2, AlertCircle, FileText, ArrowLeft, Shield, Link2, EyeOff as BlurIcon, FolderPlus, Zap
+} from "lucide-react"
 import Link from "next/link"
+import { QRCodeSVG } from "qrcode.react"
 import { FHENIX_DROPBOX_ABI, CONTRACT_ADDRESS, hashPassword, ZERO_BYTES32 } from "@/lib/fhenix"
-import { uploadToIPFS } from "@/lib/ipfs"
+import { uploadToIPFSViaAPI, generateEncryptionKey, generateIV } from "@/lib/ipfs"
 import { sepolia } from "wagmi/chains"
 
-// Coming soon tooltip component
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+interface FileItem {
+  id: string
+  file: File | null
+  name: string
+  size: string
+  ipfsHash: string | null
+  encryptionKey: string | null
+  encryptionIv: string | null
+  isEncrypted: boolean
+  uploading: boolean
+  uploaded: boolean
+  error: string | null
+}
+
+interface AccessRules {
+  price: string
+  accessCode: string
+  maxDownloads: string
+  expiryDays: string
+  encryptContent: boolean
+}
+
+interface UploadedFileData {
+  ipfsHash: string
+  encryptionKey?: string
+  encryptionIv?: string
+  isEncrypted: boolean
+  name: string
+}
+
+// ─── Coming Soon Tooltip ─────────────────────────────────────────────────────
+
 function ComingSoon({ children, label }: { children: React.ReactNode; label: string }) {
   const [showTooltip, setShowTooltip] = useState(false)
 
@@ -30,44 +68,33 @@ function ComingSoon({ children, label }: { children: React.ReactNode; label: str
   )
 }
 
-interface FileItem {
-  id: string
-  file: File | null
-  name: string
-  size: string
-  ipfsHash: string | null
-  uploading: boolean
-  uploaded: boolean
-  error: string | null
-}
-
-interface AccessRules {
-  price: string
-  password: string
-  maxDownloads: string
-  expiryDays: string
-  linkExpiryDays: string
-  previewEnabled: boolean
-}
+// ─── Main Component ─────────────────────────────────────────────────────────
 
 export default function UploadPage() {
+  const router = useRouter()
   const { address, isConnected, chain } = useAccount()
   const [dragActive, setDragActive] = useState(false)
   const [files, setFiles] = useState<FileItem[]>([])
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [accessRules, setAccessRules] = useState<AccessRules>({
     price: "0",
-    password: "",
+    accessCode: "",
     maxDownloads: "100",
     expiryDays: "365",
-    linkExpiryDays: "0",
-    previewEnabled: false,
+    encryptContent: true,
   })
-  const [showPassword, setShowPassword] = useState(false)
+  const [showAccessCode, setShowAccessCode] = useState(false)
   const [deploying, setDeploying] = useState(false)
   const [deployed, setDeployed] = useState(false)
-  const [shareLinks, setShareLinks] = useState<{ id: string; link: string; name: string }[]>([])
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFileData[]>([])
   const [uploadProgress, setUploadProgress] = useState(0)
+  const [fileIds, setFileIds] = useState<bigint[]>([])
+  const [qrModalFile, setQrModalFile] = useState<{ fileId: bigint; fileName: string } | null>(null)
+  const [baseUrl, setBaseUrl] = useState<string>('')
+
+  useEffect(() => {
+    setBaseUrl(window.location.origin)
+  }, [])
 
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return "0 Bytes"
@@ -76,6 +103,8 @@ export default function UploadPage() {
     const i = Math.floor(Math.log(bytes) / Math.log(k))
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
   }
+
+  // ─── Drag & Drop ────────────────────────────────────────────────────────────
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -93,27 +122,20 @@ export default function UploadPage() {
     setDragActive(false)
 
     if (e.dataTransfer.files) {
-      const newFiles = Array.from(e.dataTransfer.files).map((file, index) => ({
-        id: `${Date.now()}-${index}`,
-        file,
-        name: file.name,
-        size: formatFileSize(file.size),
-        ipfsHash: null,
-        uploading: true,
-        uploaded: false,
-        error: null,
-      }))
-      setFiles(prev => [...prev, ...newFiles])
+      addFiles(Array.from(e.dataTransfer.files))
     }
   }, [])
 
-  const handleFileSelect = (selectedFiles: FileList) => {
-    const newFiles = Array.from(selectedFiles).map((file, index) => ({
-      id: `${Date.now()}-${index}`,
+  const addFiles = (fileList: File[]) => {
+    const newFiles: FileItem[] = fileList.map((file, index) => ({
+      id: `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`,
       file,
       name: file.name,
       size: formatFileSize(file.size),
       ipfsHash: null,
+      encryptionKey: null,
+      encryptionIv: null,
+      isEncrypted: accessRules.encryptContent,
       uploading: true,
       uploaded: false,
       error: null,
@@ -123,7 +145,7 @@ export default function UploadPage() {
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      handleFileSelect(e.target.files)
+      addFiles(Array.from(e.target.files))
     }
   }
 
@@ -131,7 +153,8 @@ export default function UploadPage() {
     setFiles(prev => prev.filter(f => f.id !== id))
   }
 
-  // Upload files to IPFS
+  // ─── IPFS Upload ────────────────────────────────────────────────────────────
+
   useEffect(() => {
     const uploadPendingFiles = files.filter(f => f.uploading && !f.ipfsHash && !f.error)
     if (uploadPendingFiles.length === 0) return
@@ -141,13 +164,55 @@ export default function UploadPage() {
         if (!fileItem.file) continue
 
         try {
-          const result = await uploadToIPFS(fileItem.file)
+          let result: { hash: string; size: number; timestamp: string }
+          let encryptionKey: string | null = null
+          let encryptionIv: string | null = null
+
+          if (accessRules.encryptContent) {
+            // Generate encryption key and IV
+            encryptionKey = generateEncryptionKey()
+            encryptionIv = generateIV()
+
+            // Encrypt file content
+            const fileBuffer = await fileItem.file.arrayBuffer()
+            const keyData = Uint8Array.from(atob(encryptionKey), c => c.charCodeAt(0))
+            const ivData = Uint8Array.from(atob(encryptionIv), c => c.charCodeAt(0))
+
+            const cryptoKey = await crypto.subtle.importKey(
+              'raw', keyData, { name: 'AES-GCM', length: 256 }, false, ['encrypt']
+            )
+
+            const encrypted = await crypto.subtle.encrypt(
+              { name: 'AES-GCM', iv: ivData },
+              cryptoKey,
+              fileBuffer
+            )
+
+            // Upload encrypted file
+            const encryptedBlob = new Blob([encrypted])
+            const encryptedFile = new File([encryptedBlob], `enc_${fileItem.name}`)
+
+            result = await uploadToIPFSViaAPI(encryptedFile)
+          } else {
+            // Upload unencrypted
+            result = await uploadToIPFSViaAPI(fileItem.file)
+          }
+
           setFiles(prev => prev.map(f =>
             f.id === fileItem.id
-              ? { ...f, ipfsHash: result.hash, uploading: false, uploaded: true }
+              ? {
+                  ...f,
+                  ipfsHash: result.hash,
+                  encryptionKey,
+                  encryptionIv,
+                  isEncrypted: accessRules.encryptContent,
+                  uploading: false,
+                  uploaded: true
+                }
               : f
           ))
         } catch (error) {
+          console.error('Upload error:', error)
           setFiles(prev => prev.map(f =>
             f.id === fileItem.id
               ? { ...f, uploading: false, error: "Upload failed" }
@@ -158,7 +223,7 @@ export default function UploadPage() {
     }
 
     uploadFiles()
-  }, [files])
+  }, [files, accessRules.encryptContent])
 
   // Calculate upload progress
   useEffect(() => {
@@ -170,30 +235,80 @@ export default function UploadPage() {
     setUploadProgress(Math.round((uploaded / files.length) * 100))
   }, [files])
 
-  // Contract write
+  // ─── Contract Interaction ──────────────────────────────────────────────────────
+
   const { writeContract, data: txHash, isPending, error: writeError } = useWriteContract()
 
+  const { isLoading: isWaiting, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
+
+  // Get total files before upload to calculate file IDs
+  const { data: totalFilesBefore } = useReadContract({
+    address: CONTRACT_ADDRESS as `0x${string}`,
+    abi: FHENIX_DROPBOX_ABI,
+    functionName: 'totalFiles',
+    query: { enabled: !!address }
+  }) as { data: bigint | undefined }
+
+  useEffect(() => {
+    if (isSuccess && totalFilesBefore !== undefined && !deployed) {
+      const filesUploaded = files.filter(f => f.uploaded && f.ipfsHash).length
+      const startId = Number(totalFilesBefore)
+
+      // Generate IDs for all uploaded files
+      const newFileIds: bigint[] = []
+      for (let i = 0; i < filesUploaded; i++) {
+        newFileIds.push(BigInt(startId + i))
+      }
+
+      // Store uploaded file data
+      const uploadedFileData: UploadedFileData[] = files
+        .filter(f => f.uploaded && f.ipfsHash)
+        .map(f => ({
+          ipfsHash: f.ipfsHash!,
+          encryptionKey: f.encryptionKey || undefined,
+          encryptionIv: f.encryptionIv || undefined,
+          isEncrypted: f.isEncrypted,
+          name: f.name
+        }))
+
+      setUploadedFiles(uploadedFileData)
+      setFileIds(newFileIds)
+      setDeployed(true)
+      setDeploying(false)
+    }
+  }, [isSuccess, totalFilesBefore, deployed, files])
+
   const handleDeploy = async () => {
-    const uploadedFiles = files.filter(f => f.uploaded && f.ipfsHash)
-    if (uploadedFiles.length === 0 || !address) return
+    const readyFiles = files.filter(f => f.uploaded && f.ipfsHash)
+    if (readyFiles.length === 0 || !address) return
 
     setDeploying(true)
 
     try {
-      const passwordHash = hashPassword(accessRules.password)
+      // Hash the access code
+      const accessCodeHash = accessRules.accessCode
+        ? hashPassword(accessRules.accessCode)
+        : ZERO_BYTES32
 
-      // Deploy first file (for demo)
-      const firstFile = uploadedFiles[0]
+      // Create encryption key hash for content encryption
+      const encryptionKeyHash = readyFiles[0].encryptionKey
+        ? hashPassword(readyFiles[0].encryptionKey!)
+        : ZERO_BYTES32
+
+      // Upload first file with access rules
+      const firstFile = readyFiles[0]
       writeContract({
         address: CONTRACT_ADDRESS as `0x${string}`,
         abi: FHENIX_DROPBOX_ABI,
         functionName: 'uploadFile',
         args: [
           firstFile.ipfsHash!,
-          BigInt(parseFloat(accessRules.price) * 1e6),
-          BigInt(accessRules.maxDownloads || "0"),
-          BigInt(accessRules.expiryDays || "0"),
-          passwordHash as `0x${string}`
+          BigInt(parseFloat(accessRules.price || "0") * 1e6),
+          BigInt(accessRules.maxDownloads || "100"),
+          BigInt(accessRules.expiryDays || "365"),
+          accessCodeHash,
+          accessRules.encryptContent,
+          encryptionKeyHash
         ],
         chainId: sepolia.id,
       })
@@ -203,26 +318,33 @@ export default function UploadPage() {
     }
   }
 
-  const { isLoading: isWaiting, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
-
-  useEffect(() => {
-    if (isSuccess && txHash) {
-      const newLinks = files
-        .filter(f => f.uploaded && f.ipfsHash)
-        .map(f => ({
-          id: f.id,
-          name: f.name,
-          link: `${window.location.origin}/share/${f.ipfsHash?.slice(-8) || Math.random().toString(36).slice(-8)}`
-        }))
-      setShareLinks(newLinks)
-      setDeployed(true)
-      setDeploying(false)
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      // Show brief feedback
+      const btn = document.activeElement as HTMLButtonElement
+      if (btn) {
+        const originalText = btn.innerHTML
+        btn.innerHTML = 'Copied!'
+        btn.classList.add('bg-emerald-600')
+        setTimeout(() => {
+          btn.innerHTML = originalText
+          btn.classList.remove('bg-emerald-600')
+        }, 1500)
+      }
+    } catch (err) {
+      console.error('Failed to copy:', err)
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea')
+      textArea.value = text
+      document.body.appendChild(textArea)
+      textArea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textArea)
     }
-  }, [isSuccess, txHash, files])
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
   }
+
+  // ─── Render ─────────────────────────────────────────────────────────────────
 
   if (!isConnected) {
     return (
@@ -317,7 +439,15 @@ export default function UploadPage() {
                   <Loader2 className="w-5 h-5 animate-spin text-black/30" />
                 )}
                 {file.uploaded && (
-                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                    {file.isEncrypted && (
+                      <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Lock className="w-2.5 h-2.5" />
+                        Encrypted
+                      </span>
+                    )}
+                  </div>
                 )}
                 {file.error && (
                   <AlertCircle className="w-5 h-5 text-red-500" />
@@ -359,35 +489,42 @@ export default function UploadPage() {
                 <DollarSign className="w-4 h-4 text-black/40" />
                 Price (USDC)
               </label>
-              <input
-                type="number"
-                value={accessRules.price}
-                onChange={(e) => setAccessRules({ ...accessRules, price: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-lg border border-black/[0.1] bg-black/[0.02] text-sm"
-                placeholder="0"
-              />
+              <div className="relative">
+                <input
+                  type="number"
+                  value={accessRules.price}
+                  onChange={(e) => setAccessRules({ ...accessRules, price: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-lg border border-black/[0.1] bg-black/[0.02] text-sm"
+                  placeholder="0"
+                  min="0"
+                  step="0.01"
+                />
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-black/40">
+                  USDC
+                </span>
+              </div>
             </div>
 
-            {/* Password */}
+            {/* Access Code */}
             <div className="bg-white rounded-xl border border-black/[0.07] p-4">
               <label className="flex items-center gap-2 text-sm font-medium mb-3">
                 <Key className="w-4 h-4 text-black/40" />
-                Password
+                Access Code
               </label>
               <div className="relative">
                 <input
-                  type={showPassword ? "text" : "password"}
-                  value={accessRules.password}
-                  onChange={(e) => setAccessRules({ ...accessRules, password: e.target.value })}
+                  type={showAccessCode ? "text" : "password"}
+                  value={accessRules.accessCode}
+                  onChange={(e) => setAccessRules({ ...accessRules, accessCode: e.target.value })}
                   className="w-full px-4 py-2.5 pr-10 rounded-lg border border-black/[0.1] bg-black/[0.02] text-sm"
-                  placeholder="Optional"
+                  placeholder="Optional PIN code"
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
+                  onClick={() => setShowAccessCode(!showAccessCode)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-black/30"
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showAccessCode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
@@ -404,6 +541,7 @@ export default function UploadPage() {
                 onChange={(e) => setAccessRules({ ...accessRules, maxDownloads: e.target.value })}
                 className="w-full px-4 py-2.5 rounded-lg border border-black/[0.1] bg-black/[0.02] text-sm"
                 placeholder="100"
+                min="1"
               />
             </div>
 
@@ -419,7 +557,33 @@ export default function UploadPage() {
                 onChange={(e) => setAccessRules({ ...accessRules, expiryDays: e.target.value })}
                 className="w-full px-4 py-2.5 rounded-lg border border-black/[0.1] bg-black/[0.02] text-sm"
                 placeholder="365"
+                min="0"
               />
+            </div>
+          </div>
+
+          {/* Encryption Toggle */}
+          <div className="bg-white rounded-xl border border-black/[0.07] p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Shield className="w-5 h-5 text-black/40" />
+                <div>
+                  <div className="text-sm font-medium">Encrypt File Content</div>
+                  <div className="text-xs text-black/50">
+                    AES-256 encryption before IPFS upload
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setAccessRules(prev => ({ ...prev, encryptContent: !prev.encryptContent }))}
+                className={`w-12 h-7 rounded-full relative transition-colors ${
+                  accessRules.encryptContent ? "bg-[#111]" : "bg-black/[0.1]"
+                }`}
+              >
+                <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                  accessRules.encryptContent ? "left-[calc(100%-24px)]" : "left-1"
+                }`} />
+              </button>
             </div>
           </div>
 
@@ -428,8 +592,7 @@ export default function UploadPage() {
             <div className="bg-white rounded-xl border border-black/[0.07] p-4 space-y-4">
               <h3 className="font-medium">Advanced Options</h3>
 
-              {/* Link Expiry */}
-              <ComingSoon label="Coming in Wave 2">
+              <ComingSoon label="Coming in Wave 3">
                 <div className="flex items-center justify-between p-4 bg-black/[0.02] rounded-lg opacity-50">
                   <div className="flex items-center gap-3">
                     <Link2 className="w-5 h-5 text-black/40" />
@@ -442,8 +605,7 @@ export default function UploadPage() {
                 </div>
               </ComingSoon>
 
-              {/* File Preview */}
-              <ComingSoon label="Coming in Wave 2">
+              <ComingSoon label="Coming in Wave 3">
                 <div className="flex items-center justify-between p-4 bg-black/[0.02] rounded-lg opacity-50">
                   <div className="flex items-center gap-3">
                     <Eye className="w-5 h-5 text-black/40" />
@@ -456,8 +618,7 @@ export default function UploadPage() {
                 </div>
               </ComingSoon>
 
-              {/* Folder Upload */}
-              <ComingSoon label="Coming in Wave 2">
+              <ComingSoon label="Coming in Wave 3">
                 <div className="flex items-center justify-between p-4 bg-black/[0.02] rounded-lg opacity-50">
                   <div className="flex items-center gap-3">
                     <FolderPlus className="w-5 h-5 text-black/40" />
@@ -471,6 +632,18 @@ export default function UploadPage() {
               </ComingSoon>
             </div>
           )}
+
+          {/* FHE Privacy Notice */}
+          <div className="flex items-start gap-3 p-4 bg-emerald-50 rounded-xl border border-emerald-100">
+            <Shield className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+            <div className="text-sm text-emerald-700">
+              <div className="font-medium mb-1">FHE Privacy Protection</div>
+              <div className="text-emerald-600/80 text-xs">
+                Your access rules (price, downloads, expiry) are encrypted on-chain using FHE.
+                {accessRules.encryptContent && " File contents are encrypted with AES-256 before upload."}
+              </div>
+            </div>
+          </div>
 
           {/* Error */}
           {writeError && (
@@ -489,12 +662,12 @@ export default function UploadPage() {
             {isPending || isWaiting ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                {isPending ? "Confirm in wallet..." : "Waiting..."}
+                {isPending ? "Confirm in wallet..." : "Processing..."}
               </>
             ) : (
               <>
                 <Lock className="w-4 h-4" />
-                Deploy {files.filter(f => f.uploaded).length} file(s) with Private Rules
+                Deploy {files.filter(f => f.uploaded).length} File(s) with Encrypted Rules
               </>
             )}
           </button>
@@ -502,7 +675,7 @@ export default function UploadPage() {
       )}
 
       {/* Success */}
-      {deployed && shareLinks.length > 0 && (
+      {deployed && fileIds.length > 0 && (
         <div className="bg-white rounded-2xl border border-black/[0.07] p-8 space-y-6">
           <div className="text-center">
             <div className="w-16 h-16 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-4">
@@ -510,28 +683,58 @@ export default function UploadPage() {
             </div>
             <h2 className="text-xl font-medium mb-2">Files Deployed!</h2>
             <p className="text-sm text-black/50">
-              Your files are now stored with encrypted access rules.
+              Your files are now stored with encrypted access rules on-chain.
             </p>
           </div>
 
           <div className="space-y-3">
             <h3 className="text-sm font-medium">Share Links</h3>
-            {shareLinks.map((link) => (
-              <div key={link.id} className="flex items-center gap-2 p-3 bg-black/[0.02] rounded-lg">
-                <FileText className="w-4 h-4 text-black/40 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm truncate">{link.name}</div>
-                  <div className="text-xs text-black/40 font-mono truncate">{link.link}</div>
+            {fileIds.map((fileId, index) => {
+              const fileName = uploadedFiles[index]?.name || `File #${fileId.toString()}`
+              const linkHash = Math.abs(Array.from(fileId.toString()).reduce((acc, c, i) => {
+                return acc + c.charCodeAt(0) * (i + 1)
+              }, 0)).toString(16).padStart(8, '0').toUpperCase()
+              const shareUrl = `${baseUrl}/share/${fileId.toString()}?h=${linkHash}`
+              return (
+                <div key={fileId.toString()} className="flex items-center gap-2 p-3 bg-black/[0.02] rounded-lg">
+                  <FileText className="w-4 h-4 text-black/40 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm truncate">{fileName}</div>
+                    <div className="text-xs text-black/40 font-mono">
+                      {shareUrl}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setQrModalFile({ fileId, fileName })}
+                    className="px-3 py-1.5 bg-emerald-600 text-white text-xs rounded-lg shrink-0 flex items-center gap-1 hover:bg-emerald-700"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="3" y="3" width="7" height="7" />
+                      <rect x="14" y="3" width="7" height="7" />
+                      <rect x="3" y="14" width="7" height="7" />
+                      <rect x="14" y="14" width="7" height="7" />
+                    </svg>
+                    QR
+                  </button>
+                  <button
+                    onClick={() => copyToClipboard(shareUrl)}
+                    className="px-3 py-1.5 bg-[#111] text-white text-xs rounded-lg shrink-0 flex items-center gap-1"
+                  >
+                    <Copy size={12} />
+                    Copy
+                  </button>
                 </div>
-                <button
-                  onClick={() => copyToClipboard(link.link)}
-                  className="px-3 py-1.5 bg-[#111] text-white text-xs rounded-lg shrink-0"
-                >
-                  Copy
-                </button>
-              </div>
-            ))}
+              )
+            })}
           </div>
+
+          {qrModalFile && (
+            <QRModal
+              fileId={qrModalFile.fileId}
+              fileName={qrModalFile.fileName}
+              onClose={() => setQrModalFile(null)}
+            />
+          )}
 
           {txHash && (
             <div className="p-3 bg-black/[0.02] rounded-lg">
@@ -557,7 +760,8 @@ export default function UploadPage() {
             <button
               onClick={() => {
                 setFiles([])
-                setShareLinks([])
+                setUploadedFiles([])
+                setFileIds([])
                 setDeployed(false)
               }}
               className="flex-1 py-3 text-center rounded-xl border border-black/[0.1] text-sm"
@@ -567,6 +771,69 @@ export default function UploadPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// Copy icon helper
+function Copy({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  )
+}
+
+// QR Code modal component
+function QRModal({ fileId, fileName, onClose }: { fileId: bigint; fileName: string; onClose: () => void }) {
+  const [mounted, setMounted] = useState(false)
+  const [shareUrl, setShareUrl] = useState('')
+  const [urlHash, setUrlHash] = useState('')
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  useEffect(() => {
+    if (mounted) {
+      const base = `${window.location.origin}/share/${fileId.toString()}`
+      setShareUrl(base)
+      // Generate hash from file ID only (stable, no hydration issues)
+      const hash = Math.abs(Array.from(fileId.toString()).reduce((acc, c, i) => {
+        return acc + c.charCodeAt(0) * (i + 1)
+      }, 0)).toString(16).padStart(8, '0').toUpperCase()
+      setUrlHash(hash)
+    }
+  }, [fileId, mounted])
+
+  const hashedUrl = shareUrl ? `${shareUrl}?h=${urlHash}` : ''
+
+  if (!mounted) {
+    return null
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4" onClick={e => e.stopPropagation()}>
+        <div className="text-center mb-4">
+          <h3 className="text-lg font-medium">Scan to Access</h3>
+          <p className="text-sm text-black/50 truncate">{fileName}</p>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-black/[0.1] flex items-center justify-center mb-4">
+          <QRCodeSVG value={hashedUrl} size={180} level="H" />
+        </div>
+        <div className="text-center">
+          <div className="text-xs text-black/40 mb-1">Secure Link ID</div>
+          <div className="text-sm font-mono text-black/60">{urlHash}</div>
+        </div>
+        <button
+          onClick={onClose}
+          className="w-full mt-4 py-3 rounded-xl bg-[#111] text-white text-sm"
+        >
+          Close
+        </button>
+      </div>
     </div>
   )
 }

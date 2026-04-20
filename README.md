@@ -1,5 +1,9 @@
 # FhenixDropBox - Privacy-First Decentralized File Sharing
 
+![FhenixDropBox Logo](asserts/Open_Cardboard_Box_PNG_Clip_Art-1284.png)
+
+live url - https://fhenixdropbox.vercel.app
+
 A privacy-first decentralized file sharing platform built on Fhenix with encrypted access control. Share files with complete privacy using Fully Homomorphic Encryption (FHE).
 
 ## What is FhenixDropBox?
@@ -63,9 +67,10 @@ Access granted? File is decrypted locally for the authorized user only.
 ## Deployed Contract
 
 - **Network**: Ethereum Sepolia
-- **Contract Address**: `0x4a69Db2288Bb9868Bf6eB87FFBcfaeebB51231e8`
+- **Contract Address**: `0x820D442CC6BB930307183926C7805212668C7Cff`
 - **RPC**: https://ethereum-sepolia.publicnode.com
 
+ 
 ## Development Roadmap
 
 ### Wave 1 - Available Now
@@ -76,32 +81,37 @@ Core platform with essential privacy features:
 - File Upload with access control
 - Basic wallet connection
 
-### Wave 2 -  ce and previews:
-- File Preview (preview PDFs and images before purchase)
-- Multi-File Upload (upload up to 10 files at once)
-- Link Expiry (24h / 7d / 30d link expiration)
-- Batch Downloads (download multiple files)
+### Wave 2 -  Avialable :
+  
+- ✅ File management page (/files)
+- ✅ Share page with on-chain verification
+- ✅ QR Code generation for sharing
+- ✅ Hashed secure share links
+- ✅ Download tracking on blockchain
+- ✅ Privacy Protection (no data exposed publicly)
+- ✅ AES-256 file content encryption
+- ✅ Smart contract deployment on Sepolia
 
 ### Wave 3 -  
-Organization and developer tools:
-- Folder Organization (organize files in folders)
-- API Access (developer API for integrations)
-- Webhooks (real-time event notifications)
-- CDN Distribution (fast global file delivery)
+File Preview (preview PDFs and images before purchase)
+Multi-File Upload (upload up to 10 files at once)
+Link Expiry (24h / 7d / 30d link expiration)
+Batch Downloads (download multiple files)
+-Paymnet issue will be fixed 
 
 ### Wave 4 -  
+Organization and developer tools:
+Folder Organization (organize files in folders)
+Webhooks (real-time event notifications)
+CDN Distribution (fast global file delivery)
+
+### Wave 5 
+
 Collaboration and monetization:
 - Team Collaboration (share folders with teams)
 - Advanced Permissions (granular access control)
 - Subscriptions (recurring payments)
 - Social Sharing (share to social platforms)
-
-### Wave 5 
-
-- Prodtional ready 
-- finishing the things and feature 
-- add soem more cool adn important feature 
- 
 
 ## Getting Started
 
@@ -136,7 +146,7 @@ pnpm dev
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_project_id
 
 # Contract Address
-NEXT_PUBLIC_CONTRACT_ADDRESS=0x4a69Db2288Bb9868Bf6eB87FFBcfaeebB51231e8
+NEXT_PUBLIC_CONTRACT_ADDRESS=0x820D442CC6BB930307183926C7805212668C7Cff
 
 # RPC URLs
 SEPOLIA_RPC_URL=https://ethereum-sepolia.publicnode.com
