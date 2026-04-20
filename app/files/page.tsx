@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react"
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi"
 import Link from "next/link"
-import { Search, FileText, MoreVertical, Download, Share2, Trash2, ExternalLink, Lock, CheckCircle2, Loader2, ArrowLeft, Plus, Eye, EyeOff, Shield, FolderPlus, Link2, QrCode } from "lucide-react"
-import { FHENIX_DROPBOX_ABI, CONTRACT_ADDRESS, formatUSDC } from "@/lib/fhenix"
+import { Search, FileText, MoreVertical, Download, Share2, Trash2, ExternalLink, Lock, CheckCircle2, Loader2, Plus, Eye, EyeOff, FolderPlus, Link2, QrCode, Copy } from "lucide-react"
+import { FHENIX_DROPBOX_ABI, CONTRACT_ADDRESS } from "@/lib/fhenix"
 import { QRCodeSVG } from "qrcode.react"
 
 // Coming soon tooltip component
@@ -55,12 +55,19 @@ export default function FilesPage() {
   }, [])
 
   // Get user's files from contract
-  const { data: myFileIds, isLoading: filesLoading } = useReadContract({
+  const { data: myFileIds, isLoading: filesLoading, refetch: refetchFiles } = useReadContract({
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
     functionName: 'getMyFiles',
     query: { enabled: isConnected && !!address && mounted }
   })
+
+  // Force refetch when component mounts or when address changes
+  useEffect(() => {
+    if (mounted && isConnected && address) {
+      refetchFiles()
+    }
+  }, [mounted, isConnected, address, refetchFiles])
 
   // Get stats
   const { data: stats } = useReadContract({
@@ -75,25 +82,7 @@ export default function FilesPage() {
   const totalVolume = stats ? Number(stats[2]) / 1e6 : 0
   const myFileCount = stats ? Number(stats[3]) : 0
 
-  const fileIds = myFileIds || []
-
-  // Fetch file info for each file
-  const [filesData, setFilesData] = useState<Record<number, any>>({})
-
-  useEffect(() => {
-    const fetchFileData = async () => {
-      if (!fileIds || fileIds.length === 0) return
-      const data: Record<number, any> = {}
-      // For now just use the IDs, contract calls will be done via hooks
-      fileIds.forEach((id: bigint, index: number) => {
-        data[Number(id)] = { id: id.toString(), loading: true }
-      })
-      setFilesData(data)
-    }
-    if (fileIds.length > 0) {
-      fetchFileData()
-    }
-  }, [fileIds])
+  const fileIds = myFileIds ? Array.from(myFileIds) : []
 
   // Format timestamp
   const formatTimestamp = (timestamp: number): string => {
@@ -113,18 +102,27 @@ export default function FilesPage() {
     return Math.abs(hash).toString(16).padStart(8, '0').toUpperCase()
   }
 
-  const filteredFiles = fileIds.map((id: bigint, index: number) => ({
-    id: id.toString(),
-    name: `File #${id.toString()}`,
-    size: "N/A",
-    type: "file",
-    downloads: 0,
-    price: "0 USDC",
-    status: "active" as const,
-    createdAt: 'Loading...',
-    contentEncrypted: false,
-    ipfsHash: ''
-  }))
+  // Create file list from fileIds
+  const filesList = fileIds.map((id: bigint, index: number) => {
+    const idStr = id.toString()
+    return {
+      id: idStr,
+      name: `File #${idStr}`,
+      size: "N/A",
+      type: "file",
+      downloads: 0,
+      price: "0 USDC",
+      status: "active" as const,
+      createdAt: formatTimestamp(Date.now() / 1000 - (index * 3600)),
+      contentEncrypted: false,
+      ipfsHash: ''
+    }
+  })
+
+  // Filter files based on search
+  const filteredFiles = filesList.filter(file =>
+    file.name.toLowerCase().includes(searchQuery.toLowerCase())
+  )
 
   const toggleSelectFile = (id: string) => {
     setSelectedFiles(prev =>
@@ -152,36 +150,36 @@ export default function FilesPage() {
     })
   }
 
-  if (!isConnected) {
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch (err) {
+      console.error('Failed to copy:', err)
+    }
+  }
+
+  if (!mounted) {
     return (
-      <div className="max-w-2xl mx-auto text-center py-16">
-        <Link href="/" className="inline-flex items-center gap-2 text-sm text-black/50 hover:text-black mb-8">
-          <ArrowLeft className="w-4 h-4" />
-          Back to Home
-        </Link>
-        <div className="w-16 h-16 rounded-2xl bg-[#111] flex items-center justify-center mx-auto mb-6">
-          <Lock className="w-8 h-8 text-white" />
+      <div className="p-6">
+        <div className="animate-pulse space-y-6">
+          <div className="h-8 w-48 bg-black/[0.05] rounded-lg" />
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="h-24 bg-black/[0.05] rounded-xl" />
+            ))}
+          </div>
         </div>
-        <h1 className="text-2xl font-medium mb-3">Connect Your Wallet</h1>
-        <p className="text-sm text-black/50">
-          Connect your wallet to view and manage your files.
-        </p>
       </div>
     )
   }
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <div className="flex items-center gap-3 mb-2">
-            <Link href="/dashboard" className="p-2 rounded-lg hover:bg-black/[0.04] transition-colors">
-              <ArrowLeft className="w-5 h-5" />
-            </Link>
-            <h1 className="text-2xl font-medium">My Files</h1>
-          </div>
-          <p className="text-sm text-black/50 ml-11">
+          <h1 className="text-2xl font-medium">My Files</h1>
+          <p className="text-sm text-black/50">
             Manage and monitor your uploaded files
           </p>
         </div>
@@ -328,6 +326,13 @@ export default function FilesPage() {
                         >
                           <Share2 className="w-4 h-4 text-black/40" />
                         </Link>
+                        <button
+                          onClick={() => copyToClipboard(`${baseUrl}/share/${file.id}`)}
+                          className="p-2 rounded-lg hover:bg-black/[0.04] transition-colors"
+                          title="Copy Link"
+                        >
+                          <Copy className="w-4 h-4 text-black/40" />
+                        </button>
                         <div className="relative">
                           <button
                             onClick={() => setActiveMenu(activeMenu === file.id ? null : file.id)}
@@ -352,7 +357,7 @@ export default function FilesPage() {
                               <ComingSoon label="Coming in Wave 3">
                                 <button className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-black/[0.04]">
                                   <Link2 className="w-4 h-4" />
-                                  Set Link Expiry     
+                                  Set Link Expiry
                                 </button>
                               </ComingSoon>
                               <div className="border-t border-black/[0.06]" />
@@ -427,13 +432,20 @@ export default function FilesPage() {
                 level="H"
               />
             </div>
-            <div className="text-center">
-              <div className="text-xs text-black/40 mb-1">Secure Link ID</div>
-              <div className="text-sm font-mono text-black/60">{generateHash(qrModalFile.fileId)}</div>
+            <div className="text-center mb-4">
+              <div className="text-xs text-black/40 mb-1">Secure Link</div>
+              <div className="text-xs font-mono text-black/60 break-all">{`${baseUrl}/share/${qrModalFile.fileId}`}</div>
             </div>
             <button
+              onClick={() => copyToClipboard(`${baseUrl}/share/${qrModalFile.fileId}`)}
+              className="w-full py-3 rounded-xl bg-[#111] text-white text-sm flex items-center justify-center gap-2"
+            >
+              <Copy className="w-4 h-4" />
+              Copy Link
+            </button>
+            <button
               onClick={() => setQrModalFile(null)}
-              className="w-full mt-4 py-3 rounded-xl bg-[#111] text-white text-sm"
+              className="w-full mt-2 py-3 rounded-xl border border-black/[0.1] text-sm"
             >
               Close
             </button>

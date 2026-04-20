@@ -318,8 +318,30 @@ export default function UploadPage() {
     }
   }
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      // Show brief feedback
+      const btn = document.activeElement as HTMLButtonElement
+      if (btn) {
+        const originalText = btn.innerHTML
+        btn.innerHTML = 'Copied!'
+        btn.classList.add('bg-emerald-600')
+        setTimeout(() => {
+          btn.innerHTML = originalText
+          btn.classList.remove('bg-emerald-600')
+        }, 1500)
+      }
+    } catch (err) {
+      console.error('Failed to copy:', err)
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea')
+      textArea.value = text
+      document.body.appendChild(textArea)
+      textArea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textArea)
+    }
   }
 
   // ─── Render ─────────────────────────────────────────────────────────────────
