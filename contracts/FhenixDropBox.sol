@@ -47,7 +47,7 @@ contract FhenixDropBox is Ownable, ReentrancyGuard {
         bool isActive;
         bool hasPassword;          // In production: ebool encryptedHasPassword
         bool contentEncrypted;    // NEW: Was the file content encrypted before upload?
-        string encryptionKeyHash;  // NEW: Hash of key used for content encryption (for access grant)
+        bytes32 encryptionKeyHash;  // NEW: Hash of key used for content encryption (for access grant)
     }
 
     struct FileAccessInfo {
@@ -76,7 +76,7 @@ contract FhenixDropBox is Ownable, ReentrancyGuard {
     uint256 public totalVolume;
 
     // Supported payment token (USDC on Sepolia)
-    address public constant USDC_TOKEN = 0x1aDV1aDV1aDV1aDV1aDV1aDV1aDV1aDV1aDV1;
+    address public constant USDC_TOKEN = 0x1AdF1AdF1aDF1ADf1ADf1aDf1aDF1adf1ADF1AD0;
 
     // ─── Events ────────────────────────────────────────────────────────────────
 

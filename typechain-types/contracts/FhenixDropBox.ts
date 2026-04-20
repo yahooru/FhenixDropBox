@@ -26,8 +26,7 @@ import type {
 export interface FhenixDropBoxInterface extends Interface {
   getFunction(
     nameOrSignature:
-      | "authorizeCreator"
-      | "authorizedFileCreator"
+      | "USDC_TOKEN"
       | "authorizedUsers"
       | "deactivateFile"
       | "downloadFile"
@@ -35,9 +34,11 @@ export interface FhenixDropBoxInterface extends Interface {
       | "files"
       | "getAccessInfo"
       | "getBalance"
+      | "getEncryptionInfo"
       | "getFileExpiry"
       | "getFileInfo"
       | "getFileOwner"
+      | "getLatestFileId"
       | "getMyFiles"
       | "getRemainingDownloads"
       | "getStats"
@@ -46,8 +47,8 @@ export interface FhenixDropBoxInterface extends Interface {
       | "reactivateFile"
       | "renounceOwnership"
       | "requestAccess"
+      | "requestAccessERC20"
       | "revokeAccess"
-      | "revokeCreator"
       | "totalDownloads"
       | "totalFiles"
       | "totalVolume"
@@ -55,8 +56,8 @@ export interface FhenixDropBoxInterface extends Interface {
       | "updateFileRules"
       | "uploadFile"
       | "userFiles"
-      | "verifyPassword"
       | "withdraw"
+      | "withdrawERC20"
   ): FunctionFragment;
 
   getEvent(
@@ -71,12 +72,8 @@ export interface FhenixDropBoxInterface extends Interface {
   ): EventFragment;
 
   encodeFunctionData(
-    functionFragment: "authorizeCreator",
-    values: [AddressLike]
-  ): string;
-  encodeFunctionData(
-    functionFragment: "authorizedFileCreator",
-    values: [AddressLike]
+    functionFragment: "USDC_TOKEN",
+    values?: undefined
   ): string;
   encodeFunctionData(
     functionFragment: "authorizedUsers",
@@ -104,6 +101,10 @@ export interface FhenixDropBoxInterface extends Interface {
     values?: undefined
   ): string;
   encodeFunctionData(
+    functionFragment: "getEncryptionInfo",
+    values: [BigNumberish]
+  ): string;
+  encodeFunctionData(
     functionFragment: "getFileExpiry",
     values: [BigNumberish]
   ): string;
@@ -114,6 +115,10 @@ export interface FhenixDropBoxInterface extends Interface {
   encodeFunctionData(
     functionFragment: "getFileOwner",
     values: [BigNumberish]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "getLatestFileId",
+    values?: undefined
   ): string;
   encodeFunctionData(
     functionFragment: "getMyFiles",
@@ -139,15 +144,15 @@ export interface FhenixDropBoxInterface extends Interface {
   ): string;
   encodeFunctionData(
     functionFragment: "requestAccess",
-    values: [BigNumberish]
+    values: [BigNumberish, BytesLike]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "requestAccessERC20",
+    values: [BigNumberish, BytesLike, BigNumberish]
   ): string;
   encodeFunctionData(
     functionFragment: "revokeAccess",
     values: [BigNumberish, AddressLike]
-  ): string;
-  encodeFunctionData(
-    functionFragment: "revokeCreator",
-    values: [AddressLike]
   ): string;
   encodeFunctionData(
     functionFragment: "totalDownloads",
@@ -167,30 +172,31 @@ export interface FhenixDropBoxInterface extends Interface {
   ): string;
   encodeFunctionData(
     functionFragment: "updateFileRules",
-    values: [BigNumberish, BigNumberish, BigNumberish, BigNumberish]
+    values: [BigNumberish, BigNumberish, BigNumberish, BigNumberish, BytesLike]
   ): string;
   encodeFunctionData(
     functionFragment: "uploadFile",
-    values: [string, BigNumberish, BigNumberish, BigNumberish, BytesLike]
+    values: [
+      string,
+      BigNumberish,
+      BigNumberish,
+      BigNumberish,
+      BytesLike,
+      boolean,
+      BytesLike
+    ]
   ): string;
   encodeFunctionData(
     functionFragment: "userFiles",
     values: [AddressLike, BigNumberish]
   ): string;
-  encodeFunctionData(
-    functionFragment: "verifyPassword",
-    values: [BigNumberish, string]
-  ): string;
   encodeFunctionData(functionFragment: "withdraw", values?: undefined): string;
+  encodeFunctionData(
+    functionFragment: "withdrawERC20",
+    values: [AddressLike]
+  ): string;
 
-  decodeFunctionResult(
-    functionFragment: "authorizeCreator",
-    data: BytesLike
-  ): Result;
-  decodeFunctionResult(
-    functionFragment: "authorizedFileCreator",
-    data: BytesLike
-  ): Result;
+  decodeFunctionResult(functionFragment: "USDC_TOKEN", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "authorizedUsers",
     data: BytesLike
@@ -214,6 +220,10 @@ export interface FhenixDropBoxInterface extends Interface {
   ): Result;
   decodeFunctionResult(functionFragment: "getBalance", data: BytesLike): Result;
   decodeFunctionResult(
+    functionFragment: "getEncryptionInfo",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "getFileExpiry",
     data: BytesLike
   ): Result;
@@ -223,6 +233,10 @@ export interface FhenixDropBoxInterface extends Interface {
   ): Result;
   decodeFunctionResult(
     functionFragment: "getFileOwner",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "getLatestFileId",
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "getMyFiles", data: BytesLike): Result;
@@ -249,11 +263,11 @@ export interface FhenixDropBoxInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
-    functionFragment: "revokeAccess",
+    functionFragment: "requestAccessERC20",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
-    functionFragment: "revokeCreator",
+    functionFragment: "revokeAccess",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -275,11 +289,11 @@ export interface FhenixDropBoxInterface extends Interface {
   ): Result;
   decodeFunctionResult(functionFragment: "uploadFile", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "userFiles", data: BytesLike): Result;
+  decodeFunctionResult(functionFragment: "withdraw", data: BytesLike): Result;
   decodeFunctionResult(
-    functionFragment: "verifyPassword",
+    functionFragment: "withdrawERC20",
     data: BytesLike
   ): Result;
-  decodeFunctionResult(functionFragment: "withdraw", data: BytesLike): Result;
 }
 
 export namespace AccessRevokedEvent {
@@ -361,14 +375,16 @@ export namespace FileUploadedEvent {
     owner: AddressLike,
     ipfsHash: string,
     price: BigNumberish,
-    hasPassword: boolean
+    hasPassword: boolean,
+    contentEncrypted: boolean
   ];
   export type OutputTuple = [
     fileId: bigint,
     owner: string,
     ipfsHash: string,
     price: bigint,
-    hasPassword: boolean
+    hasPassword: boolean,
+    contentEncrypted: boolean
   ];
   export interface OutputObject {
     fileId: bigint;
@@ -376,6 +392,7 @@ export namespace FileUploadedEvent {
     ipfsHash: string;
     price: bigint;
     hasPassword: boolean;
+    contentEncrypted: boolean;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -439,17 +456,7 @@ export interface FhenixDropBox extends BaseContract {
     event?: TCEvent
   ): Promise<this>;
 
-  authorizeCreator: TypedContractMethod<
-    [creator: AddressLike],
-    [void],
-    "nonpayable"
-  >;
-
-  authorizedFileCreator: TypedContractMethod<
-    [arg0: AddressLike],
-    [boolean],
-    "view"
-  >;
+  USDC_TOKEN: TypedContractMethod<[], [string], "view">;
 
   authorizedUsers: TypedContractMethod<
     [arg0: BigNumberish, arg1: AddressLike],
@@ -488,7 +495,9 @@ export interface FhenixDropBox extends BaseContract {
         string,
         string,
         boolean,
-        boolean
+        boolean,
+        boolean,
+        string
       ] & {
         ipfsHash: string;
         createdAt: bigint;
@@ -496,10 +505,12 @@ export interface FhenixDropBox extends BaseContract {
         maxDownloads: bigint;
         downloadCount: bigint;
         expiresAt: bigint;
-        passwordHash: string;
+        accessCodeHash: string;
         owner: string;
         isActive: boolean;
         hasPassword: boolean;
+        contentEncrypted: boolean;
+        encryptionKeyHash: string;
       }
     ],
     "view"
@@ -513,12 +524,23 @@ export interface FhenixDropBox extends BaseContract {
 
   getBalance: TypedContractMethod<[], [bigint], "view">;
 
+  getEncryptionInfo: TypedContractMethod<
+    [fileId: BigNumberish],
+    [
+      [boolean, boolean] & {
+        contentEncrypted: boolean;
+        isOwnerOrAuthorized: boolean;
+      }
+    ],
+    "view"
+  >;
+
   getFileExpiry: TypedContractMethod<[fileId: BigNumberish], [bigint], "view">;
 
   getFileInfo: TypedContractMethod<
     [fileId: BigNumberish],
     [
-      [string, bigint, bigint, bigint, bigint, boolean, boolean] & {
+      [string, bigint, bigint, bigint, bigint, boolean, boolean, boolean] & {
         ipfsHash: string;
         createdAt: bigint;
         price: bigint;
@@ -526,12 +548,15 @@ export interface FhenixDropBox extends BaseContract {
         downloadCount: bigint;
         isActive: boolean;
         hasPassword: boolean;
+        contentEncrypted: boolean;
       }
     ],
     "view"
   >;
 
   getFileOwner: TypedContractMethod<[fileId: BigNumberish], [string], "view">;
+
+  getLatestFileId: TypedContractMethod<[], [bigint], "view">;
 
   getMyFiles: TypedContractMethod<[], [bigint[]], "view">;
 
@@ -566,16 +591,20 @@ export interface FhenixDropBox extends BaseContract {
 
   renounceOwnership: TypedContractMethod<[], [void], "nonpayable">;
 
-  requestAccess: TypedContractMethod<[fileId: BigNumberish], [void], "payable">;
+  requestAccess: TypedContractMethod<
+    [fileId: BigNumberish, accessCode_: BytesLike],
+    [void],
+    "payable"
+  >;
 
-  revokeAccess: TypedContractMethod<
-    [fileId: BigNumberish, user: AddressLike],
+  requestAccessERC20: TypedContractMethod<
+    [fileId: BigNumberish, accessCode_: BytesLike, amount_: BigNumberish],
     [void],
     "nonpayable"
   >;
 
-  revokeCreator: TypedContractMethod<
-    [creator: AddressLike],
+  revokeAccess: TypedContractMethod<
+    [fileId: BigNumberish, user: AddressLike],
     [void],
     "nonpayable"
   >;
@@ -597,7 +626,8 @@ export interface FhenixDropBox extends BaseContract {
       fileId: BigNumberish,
       newPrice: BigNumberish,
       newMaxDownloads: BigNumberish,
-      newExpiryDays: BigNumberish
+      newExpiryDays: BigNumberish,
+      newAccessCodeHash: BytesLike
     ],
     [void],
     "nonpayable"
@@ -609,7 +639,9 @@ export interface FhenixDropBox extends BaseContract {
       price_: BigNumberish,
       maxDownloads_: BigNumberish,
       expiryDays_: BigNumberish,
-      passwordHash_: BytesLike
+      accessCodeHash_: BytesLike,
+      contentEncrypted_: boolean,
+      encryptionKeyHash_: BytesLike
     ],
     [bigint],
     "nonpayable"
@@ -621,24 +653,21 @@ export interface FhenixDropBox extends BaseContract {
     "view"
   >;
 
-  verifyPassword: TypedContractMethod<
-    [fileId: BigNumberish, password: string],
-    [boolean],
-    "view"
-  >;
-
   withdraw: TypedContractMethod<[], [void], "nonpayable">;
+
+  withdrawERC20: TypedContractMethod<
+    [token: AddressLike],
+    [void],
+    "nonpayable"
+  >;
 
   getFunction<T extends ContractMethod = ContractMethod>(
     key: string | FunctionFragment
   ): T;
 
   getFunction(
-    nameOrSignature: "authorizeCreator"
-  ): TypedContractMethod<[creator: AddressLike], [void], "nonpayable">;
-  getFunction(
-    nameOrSignature: "authorizedFileCreator"
-  ): TypedContractMethod<[arg0: AddressLike], [boolean], "view">;
+    nameOrSignature: "USDC_TOKEN"
+  ): TypedContractMethod<[], [string], "view">;
   getFunction(
     nameOrSignature: "authorizedUsers"
   ): TypedContractMethod<
@@ -674,7 +703,9 @@ export interface FhenixDropBox extends BaseContract {
         string,
         string,
         boolean,
-        boolean
+        boolean,
+        boolean,
+        string
       ] & {
         ipfsHash: string;
         createdAt: bigint;
@@ -682,10 +713,12 @@ export interface FhenixDropBox extends BaseContract {
         maxDownloads: bigint;
         downloadCount: bigint;
         expiresAt: bigint;
-        passwordHash: string;
+        accessCodeHash: string;
         owner: string;
         isActive: boolean;
         hasPassword: boolean;
+        contentEncrypted: boolean;
+        encryptionKeyHash: string;
       }
     ],
     "view"
@@ -701,6 +734,18 @@ export interface FhenixDropBox extends BaseContract {
     nameOrSignature: "getBalance"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
+    nameOrSignature: "getEncryptionInfo"
+  ): TypedContractMethod<
+    [fileId: BigNumberish],
+    [
+      [boolean, boolean] & {
+        contentEncrypted: boolean;
+        isOwnerOrAuthorized: boolean;
+      }
+    ],
+    "view"
+  >;
+  getFunction(
     nameOrSignature: "getFileExpiry"
   ): TypedContractMethod<[fileId: BigNumberish], [bigint], "view">;
   getFunction(
@@ -708,7 +753,7 @@ export interface FhenixDropBox extends BaseContract {
   ): TypedContractMethod<
     [fileId: BigNumberish],
     [
-      [string, bigint, bigint, bigint, bigint, boolean, boolean] & {
+      [string, bigint, bigint, bigint, bigint, boolean, boolean, boolean] & {
         ipfsHash: string;
         createdAt: bigint;
         price: bigint;
@@ -716,6 +761,7 @@ export interface FhenixDropBox extends BaseContract {
         downloadCount: bigint;
         isActive: boolean;
         hasPassword: boolean;
+        contentEncrypted: boolean;
       }
     ],
     "view"
@@ -723,6 +769,9 @@ export interface FhenixDropBox extends BaseContract {
   getFunction(
     nameOrSignature: "getFileOwner"
   ): TypedContractMethod<[fileId: BigNumberish], [string], "view">;
+  getFunction(
+    nameOrSignature: "getLatestFileId"
+  ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
     nameOrSignature: "getMyFiles"
   ): TypedContractMethod<[], [bigint[]], "view">;
@@ -757,7 +806,18 @@ export interface FhenixDropBox extends BaseContract {
   ): TypedContractMethod<[], [void], "nonpayable">;
   getFunction(
     nameOrSignature: "requestAccess"
-  ): TypedContractMethod<[fileId: BigNumberish], [void], "payable">;
+  ): TypedContractMethod<
+    [fileId: BigNumberish, accessCode_: BytesLike],
+    [void],
+    "payable"
+  >;
+  getFunction(
+    nameOrSignature: "requestAccessERC20"
+  ): TypedContractMethod<
+    [fileId: BigNumberish, accessCode_: BytesLike, amount_: BigNumberish],
+    [void],
+    "nonpayable"
+  >;
   getFunction(
     nameOrSignature: "revokeAccess"
   ): TypedContractMethod<
@@ -765,9 +825,6 @@ export interface FhenixDropBox extends BaseContract {
     [void],
     "nonpayable"
   >;
-  getFunction(
-    nameOrSignature: "revokeCreator"
-  ): TypedContractMethod<[creator: AddressLike], [void], "nonpayable">;
   getFunction(
     nameOrSignature: "totalDownloads"
   ): TypedContractMethod<[], [bigint], "view">;
@@ -787,7 +844,8 @@ export interface FhenixDropBox extends BaseContract {
       fileId: BigNumberish,
       newPrice: BigNumberish,
       newMaxDownloads: BigNumberish,
-      newExpiryDays: BigNumberish
+      newExpiryDays: BigNumberish,
+      newAccessCodeHash: BytesLike
     ],
     [void],
     "nonpayable"
@@ -800,7 +858,9 @@ export interface FhenixDropBox extends BaseContract {
       price_: BigNumberish,
       maxDownloads_: BigNumberish,
       expiryDays_: BigNumberish,
-      passwordHash_: BytesLike
+      accessCodeHash_: BytesLike,
+      contentEncrypted_: boolean,
+      encryptionKeyHash_: BytesLike
     ],
     [bigint],
     "nonpayable"
@@ -813,15 +873,11 @@ export interface FhenixDropBox extends BaseContract {
     "view"
   >;
   getFunction(
-    nameOrSignature: "verifyPassword"
-  ): TypedContractMethod<
-    [fileId: BigNumberish, password: string],
-    [boolean],
-    "view"
-  >;
-  getFunction(
     nameOrSignature: "withdraw"
   ): TypedContractMethod<[], [void], "nonpayable">;
+  getFunction(
+    nameOrSignature: "withdrawERC20"
+  ): TypedContractMethod<[token: AddressLike], [void], "nonpayable">;
 
   getEvent(
     key: "AccessRevoked"
@@ -929,7 +985,7 @@ export interface FhenixDropBox extends BaseContract {
       FileReactivatedEvent.OutputObject
     >;
 
-    "FileUploaded(uint256,address,string,uint256,bool)": TypedContractEvent<
+    "FileUploaded(uint256,address,string,uint256,bool,bool)": TypedContractEvent<
       FileUploadedEvent.InputTuple,
       FileUploadedEvent.OutputTuple,
       FileUploadedEvent.OutputObject

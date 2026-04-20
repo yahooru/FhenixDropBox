@@ -470,6 +470,20 @@ export default function SharePage(props: { params: Promise<{ id: string }> }) {
   const fileIdFromParams = parseInt(params.id, 10)
   const fileId = isNaN(fileIdFromParams) || fileIdFromParams < 0 ? 0 : fileIdFromParams
 
+  // Generate hash from file ID for verification
+  const generateHash = (input: string): string => {
+    let hash = 0
+    for (let i = 0; i < input.length; i++) {
+      const char = input.charCodeAt(i)
+      hash = ((hash << 5) - hash) + char
+      hash = hash & hash
+    }
+    return Math.abs(hash).toString(16).padStart(8, '0').toUpperCase()
+  }
+
+  const urlHash = generateHash(fileId.toString())
+  const providedHash = params.h || ''
+
   return (
     <ShareContent fileId={fileId} />
   )

@@ -7,7 +7,7 @@
 import { sepolia, arbitrumSepolia } from 'wagmi/chains'
 
 // Contract address
-export const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '0x4a69Db2288Bb9868Bf6eB87FFBcfaeebB51231e8'
+export const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '0x820D442CC6BB930307183926C7805212668C7Cff'
 
 // Supported chains
 export const SUPPORTED_CHAINS = [sepolia, arbitrumSepolia]

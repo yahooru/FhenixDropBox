@@ -8,6 +8,7 @@ import {
   Loader2, CheckCircle2, AlertCircle, FileText, ArrowLeft, Shield, Link2, EyeOff as BlurIcon, FolderPlus, Zap
 } from "lucide-react"
 import Link from "next/link"
+import { QRCodeSVG } from "qrcode.react"
 import { FHENIX_DROPBOX_ABI, CONTRACT_ADDRESS, hashPassword, ZERO_BYTES32 } from "@/lib/fhenix"
 import { uploadToIPFSViaAPI, generateEncryptionKey, generateIV } from "@/lib/ipfs"
 import { sepolia } from "wagmi/chains"
@@ -88,6 +89,12 @@ export default function UploadPage() {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFileData[]>([])
   const [uploadProgress, setUploadProgress] = useState(0)
   const [fileIds, setFileIds] = useState<bigint[]>([])
+  const [qrModalFile, setQrModalFile] = useState<{ fileId: bigint; fileName: string } | null>(null)
+  const [baseUrl, setBaseUrl] = useState<string>('')
+
+  useEffect(() => {
+    setBaseUrl(window.location.origin)
+  }, [])
 
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return "0 Bytes"
@@ -234,16 +241,25 @@ export default function UploadPage() {
 
   const { isLoading: isWaiting, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
 
-  // Get the latest file ID after upload
-  const { data: latestFileId } = useReadContract({
+  // Get total files before upload to calculate file IDs
+  const { data: totalFilesBefore } = useReadContract({
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
-    functionName: 'getLatestFileId',
-    query: { enabled: isSuccess && !!address }
+    functionName: 'totalFiles',
+    query: { enabled: !!address }
   }) as { data: bigint | undefined }
 
   useEffect(() => {
-    if (isSuccess && latestFileId && !deployed) {
+    if (isSuccess && totalFilesBefore !== undefined && !deployed) {
+      const filesUploaded = files.filter(f => f.uploaded && f.ipfsHash).length
+      const startId = Number(totalFilesBefore)
+
+      // Generate IDs for all uploaded files
+      const newFileIds: bigint[] = []
+      for (let i = 0; i < filesUploaded; i++) {
+        newFileIds.push(BigInt(startId + i))
+      }
+
       // Store uploaded file data
       const uploadedFileData: UploadedFileData[] = files
         .filter(f => f.uploaded && f.ipfsHash)
@@ -256,11 +272,11 @@ export default function UploadPage() {
         }))
 
       setUploadedFiles(uploadedFileData)
-      setFileIds(prev => [...prev, latestFileId])
+      setFileIds(newFileIds)
       setDeployed(true)
       setDeploying(false)
     }
-  }, [isSuccess, latestFileId, deployed])
+  }, [isSuccess, totalFilesBefore, deployed, files])
 
   const handleDeploy = async () => {
     const readyFiles = files.filter(f => f.uploaded && f.ipfsHash)
@@ -651,28 +667,51 @@ export default function UploadPage() {
 
           <div className="space-y-3">
             <h3 className="text-sm font-medium">Share Links</h3>
-            {fileIds.map((fileId, index) => (
-              <div key={fileId.toString()} className="flex items-center gap-2 p-3 bg-black/[0.02] rounded-lg">
-                <FileText className="w-4 h-4 text-black/40 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm truncate">{uploadedFiles[index]?.name || `File #${fileId.toString()}`}</div>
-                  <div className="text-xs text-black/40 font-mono">
-                    {typeof window !== 'undefined' ? `${window.location.origin}/share/${fileId.toString()}` : `/share/${fileId.toString()}`}
+            {fileIds.map((fileId, index) => {
+              const fileName = uploadedFiles[index]?.name || `File #${fileId.toString()}`
+              return (
+                <div key={fileId.toString()} className="flex items-center gap-2 p-3 bg-black/[0.02] rounded-lg">
+                  <FileText className="w-4 h-4 text-black/40 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm truncate">{fileName}</div>
+                    <div className="text-xs text-black/40 font-mono">
+                      {baseUrl}/share/{fileId.toString()}
+                    </div>
                   </div>
+                  <button
+                    onClick={() => setQrModalFile({ fileId, fileName })}
+                    className="px-3 py-1.5 bg-emerald-600 text-white text-xs rounded-lg shrink-0 flex items-center gap-1 hover:bg-emerald-700"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="3" y="3" width="7" height="7" />
+                      <rect x="14" y="3" width="7" height="7" />
+                      <rect x="3" y="14" width="7" height="7" />
+                      <rect x="14" y="14" width="7" height="7" />
+                    </svg>
+                    QR
+                  </button>
+                  <button
+                    onClick={() => {
+                      const link = `${baseUrl}/share/${fileId.toString()}`
+                      copyToClipboard(link)
+                    }}
+                    className="px-3 py-1.5 bg-[#111] text-white text-xs rounded-lg shrink-0 flex items-center gap-1"
+                  >
+                    <Copy size={12} />
+                    Copy
+                  </button>
                 </div>
-                <button
-                  onClick={() => {
-                    const link = `${window.location.origin}/share/${fileId.toString()}`
-                    copyToClipboard(link)
-                  }}
-                  className="px-3 py-1.5 bg-[#111] text-white text-xs rounded-lg shrink-0 flex items-center gap-1"
-                >
-                  <Copy size={12} />
-                  Copy
-                </button>
-              </div>
-            ))}
+              )
+            })}
           </div>
+
+          {qrModalFile && (
+            <QRModal
+              fileId={qrModalFile.fileId}
+              fileName={qrModalFile.fileName}
+              onClose={() => setQrModalFile(null)}
+            />
+          )}
 
           {txHash && (
             <div className="p-3 bg-black/[0.02] rounded-lg">
@@ -720,5 +759,52 @@ function Copy({ size = 16 }: { size?: number }) {
       <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
       <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
     </svg>
+  )
+}
+
+// QR Code modal component
+function QRModal({ fileId, fileName, onClose }: { fileId: bigint; fileName: string; onClose: () => void }) {
+  const [shareUrl, setShareUrl] = useState('')
+
+  useEffect(() => {
+    setShareUrl(`${window.location.origin}/share/${fileId.toString()}`)
+  }, [fileId])
+
+  // Generate hash for the share URL
+  const generateHash = (input: string): string => {
+    let hash = 0
+    for (let i = 0; i < input.length; i++) {
+      const char = input.charCodeAt(i)
+      hash = ((hash << 5) - hash) + char
+      hash = hash & hash
+    }
+    return Math.abs(hash).toString(16).padStart(8, '0').toUpperCase()
+  }
+
+  const urlHash = generateHash(shareUrl)
+  const hashedUrl = `${shareUrl}?h=${urlHash}`
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4" onClick={e => e.stopPropagation()}>
+        <div className="text-center mb-4">
+          <h3 className="text-lg font-medium">Scan to Access</h3>
+          <p className="text-sm text-black/50 truncate">{fileName}</p>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-black/[0.1] flex items-center justify-center mb-4">
+          <QRCodeSVG value={hashedUrl} size={180} level="H" />
+        </div>
+        <div className="text-center">
+          <div className="text-xs text-black/40 mb-1">Secure Link ID</div>
+          <div className="text-sm font-mono text-black/60">{urlHash}</div>
+        </div>
+        <button
+          onClick={onClose}
+          className="w-full mt-4 py-3 rounded-xl bg-[#111] text-white text-sm"
+        >
+          Close
+        </button>
+      </div>
+    </div>
   )
 }

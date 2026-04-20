@@ -1,10 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi"
 import Link from "next/link"
-import { Search, FileText, MoreVertical, Download, Share2, Trash2, ExternalLink, Lock, CheckCircle2, Loader2, ArrowLeft, Plus, Eye, EyeOff, Shield, FolderPlus, Link2 } from "lucide-react"
-import { FHENIX_DROPBOX_ABI, CONTRACT_ADDRESS } from "@/lib/fhenix"
+import { Search, FileText, MoreVertical, Download, Share2, Trash2, ExternalLink, Lock, CheckCircle2, Loader2, ArrowLeft, Plus, Eye, EyeOff, Shield, FolderPlus, Link2, QrCode } from "lucide-react"
+import { FHENIX_DROPBOX_ABI, CONTRACT_ADDRESS, formatUSDC } from "@/lib/fhenix"
+import { QRCodeSVG } from "qrcode.react"
 
 // Coming soon tooltip component
 function ComingSoon({ children, label }: { children: React.ReactNode; label: string }) {
@@ -44,13 +45,21 @@ export default function FilesPage() {
   const [filterStatus, setFilterStatus] = useState<string>("all")
   const [selectedFiles, setSelectedFiles] = useState<string[]>([])
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
+  const [qrModalFile, setQrModalFile] = useState<{ fileId: string; fileName: string } | null>(null)
+  const [mounted, setMounted] = useState(false)
+  const [baseUrl, setBaseUrl] = useState<string>('')
+
+  useEffect(() => {
+    setMounted(true)
+    setBaseUrl(window.location.origin)
+  }, [])
 
   // Get user's files from contract
   const { data: myFileIds, isLoading: filesLoading } = useReadContract({
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
     functionName: 'getMyFiles',
-    query: { enabled: isConnected && !!address }
+    query: { enabled: isConnected && !!address && mounted }
   })
 
   // Get stats
@@ -58,7 +67,7 @@ export default function FilesPage() {
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
     functionName: 'getStats',
-    query: { enabled: isConnected }
+    query: { enabled: isConnected && mounted }
   })
 
   const totalFiles = stats ? Number(stats[0]) : 0
@@ -68,7 +77,33 @@ export default function FilesPage() {
 
   const fileIds = myFileIds || []
 
-  // Filter files
+  // Fetch all file info in batch
+  const { data: filesInfo } = useReadContract({
+    address: CONTRACT_ADDRESS as `0x${string}`,
+    abi: FHENIX_DROPBOX_ABI,
+    functionName: 'getFileInfo',
+    args: [fileIds[0] || BigInt(0)],
+    query: { enabled: fileIds.length > 0 }
+  })
+
+  // Format timestamp
+  const formatTimestamp = (timestamp: number): string => {
+    if (!timestamp) return 'N/A'
+    const date = new Date(timestamp * 1000)
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
+  // Generate URL hash for share link
+  const generateHash = (input: string): string => {
+    let hash = 0
+    for (let i = 0; i < input.length; i++) {
+      const char = input.charCodeAt(i)
+      hash = ((hash << 5) - hash) + char
+      hash = hash & hash
+    }
+    return Math.abs(hash).toString(16).padStart(8, '0').toUpperCase()
+  }
+
   const filteredFiles = fileIds.map((id: bigint, index: number) => ({
     id: id.toString(),
     name: `File #${id.toString()}`,
@@ -77,7 +112,9 @@ export default function FilesPage() {
     downloads: 0,
     price: "0 USDC",
     status: "active" as const,
-    uploadedAt: `${index + 1} day${index > 0 ? 's' : ''} ago`
+    createdAt: 'Fetching...',
+    contentEncrypted: false,
+    ipfsHash: ''
   }))
 
   const toggleSelectFile = (id: string) => {
@@ -255,7 +292,7 @@ export default function FilesPage() {
                       </div>
                     </td>
                     <td className="px-4 py-4 text-sm text-black/50">
-                      {file.uploadedAt}
+                      {file.createdAt}
                     </td>
                     <td className="px-4 py-4">
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
@@ -268,6 +305,13 @@ export default function FilesPage() {
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => setQrModalFile({ fileId: file.id, fileName: file.name })}
+                          className="p-2 rounded-lg hover:bg-black/[0.04] transition-colors"
+                          title="QR Code"
+                        >
+                          <QrCode className="w-4 h-4 text-black/40" />
+                        </button>
                         <Link
                           href={`/share/${file.id}`}
                           className="p-2 rounded-lg hover:bg-black/[0.04] transition-colors"
@@ -354,6 +398,35 @@ export default function FilesPage() {
               className="px-3 py-1.5 rounded-lg bg-white/10 text-xs hover:bg-white/20"
             >
               Clear
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* QR Code Modal */}
+      {qrModalFile && mounted && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setQrModalFile(null)}>
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4" onClick={e => e.stopPropagation()}>
+            <div className="text-center mb-4">
+              <h3 className="text-lg font-medium">Scan to Access</h3>
+              <p className="text-sm text-black/50">{qrModalFile.fileName}</p>
+            </div>
+            <div className="bg-white p-4 rounded-xl border border-black/[0.1] flex items-center justify-center mb-4">
+              <QRCodeSVG
+                value={`${baseUrl}/share/${qrModalFile.fileId}`}
+                size={180}
+                level="H"
+              />
+            </div>
+            <div className="text-center">
+              <div className="text-xs text-black/40 mb-1">Secure Link ID</div>
+              <div className="text-sm font-mono text-black/60">{generateHash(qrModalFile.fileId)}</div>
+            </div>
+            <button
+              onClick={() => setQrModalFile(null)}
+              className="w-full mt-4 py-3 rounded-xl bg-[#111] text-white text-sm"
+            >
+              Close
             </button>
           </div>
         </div>

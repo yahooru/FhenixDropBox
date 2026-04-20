@@ -56,6 +56,17 @@ function WalletButton() {
   const { connect, connectors } = useConnect()
   const { disconnect } = useDisconnect()
   const [showMenu, setShowMenu] = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  if (!mounted) {
+    return (
+      <div className="h-[34px] w-[120px] rounded-xl bg-[#111]/5 animate-pulse" />
+    )
+  }
 
   if (isConnected && address) {
     return (
