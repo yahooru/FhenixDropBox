@@ -1,5 +1,7 @@
 # FhenixDropBox - Privacy-First Decentralized File Sharing
 
+![FhenixDropBox Logo](asserts/Open_Cardboard_Box_PNG_Clip_Art-1284.png)
+
 A privacy-first decentralized file sharing platform built on Fhenix with encrypted access control. Share files with complete privacy using Fully Homomorphic Encryption (FHE).
 
 ## What is FhenixDropBox?
@@ -63,7 +65,7 @@ Access granted? File is decrypted locally for the authorized user only.
 ## Deployed Contract
 
 - **Network**: Ethereum Sepolia
-- **Contract Address**: `0x4a69Db2288Bb9868Bf6eB87FFBcfaeebB51231e8`
+- **Contract Address**: `0x820D442CC6BB930307183926C7805212668C7Cff`
 - **RPC**: https://ethereum-sepolia.publicnode.com
 
 ## Development Roadmap
