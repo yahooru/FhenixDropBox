@@ -669,7 +669,9 @@ export default function UploadPage() {
             <h3 className="text-sm font-medium">Share Links</h3>
             {fileIds.map((fileId, index) => {
               const fileName = uploadedFiles[index]?.name || `File #${fileId.toString()}`
-              const linkHash = generateHash(`${fileId.toString()}-${Date.now()}`)
+              const linkHash = Math.abs(Array.from(fileId.toString()).reduce((acc, c, i) => {
+                return acc + c.charCodeAt(0) * (i + 1)
+              }, 0)).toString(16).padStart(8, '0').toUpperCase()
               const shareUrl = `${baseUrl}/share/${fileId.toString()}?h=${linkHash}`
               return (
                 <div key={fileId.toString()} className="flex items-center gap-2 p-3 bg-black/[0.02] rounded-lg">

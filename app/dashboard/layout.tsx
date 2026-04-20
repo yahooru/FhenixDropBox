@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useAccount, useConnect, useDisconnect } from "wagmi"
 import { Shield, LayoutDashboard, Upload, FolderOpen, Share2, Settings, Wallet, LogOut, Menu, X } from "lucide-react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -19,8 +19,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { connect, connectors } = useConnect()
   const { disconnect } = useDisconnect()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [mounted, setMounted] = useState(false)
 
-  if (!isConnected) {
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  if (!mounted || !isConnected) {
     return (
       <div className="min-h-screen bg-[#F5F4F0] flex items-center justify-center p-6">
         <div className="max-w-md w-full text-center">

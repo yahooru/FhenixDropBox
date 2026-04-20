@@ -68,6 +68,7 @@ Access granted? File is decrypted locally for the authorized user only.
 - **Contract Address**: `0x820D442CC6BB930307183926C7805212668C7Cff`
 - **RPC**: https://ethereum-sepolia.publicnode.com
 
+ 
 ## Development Roadmap
 
 ### Wave 1 - Available Now
@@ -78,25 +79,29 @@ Core platform with essential privacy features:
 - File Upload with access control
 - Basic wallet connection
 
-### Wave 2 - Available Now
-- File Preview (preview PDFs and images before purchase)
-- Multi-File Upload (upload up to 10 files at once)
-- Link Expiry (24h / 7d / 30d link expiration)
-- Batch Downloads (download multiple files)
+### Wave 2 -  Avialable :
+  
+- ✅ File management page (/files)
+- ✅ Share page with on-chain verification
+- ✅ QR Code generation for sharing
+- ✅ Hashed secure share links
+- ✅ Download tracking on blockchain
+- ✅ Privacy Protection (no data exposed publicly)
+- ✅ AES-256 file content encryption
+- ✅ Smart contract deployment on Sepolia
 
 ### Wave 3 -  
-- File Preview (preview PDFs and images before purchase)
-- Multi-File Upload (upload up to 10 files at once)
-- Link Expiry (24h / 7d / 30d link expiration)
-- Batch Downloads (download multiple files)
-
+File Preview (preview PDFs and images before purchase)
+Multi-File Upload (upload up to 10 files at once)
+Link Expiry (24h / 7d / 30d link expiration)
+Batch Downloads (download multiple files)
+-Paymnet issue will be fixed 
 
 ### Wave 4 -  
 Organization and developer tools:
-- Folder Organization (organize files in folders)
-- Webhooks (real-time event notifications)
-- CDN Distribution (fast global file delivery)
-
+Folder Organization (organize files in folders)
+Webhooks (real-time event notifications)
+CDN Distribution (fast global file delivery)
 
 ### Wave 5 
 
@@ -139,7 +144,7 @@ pnpm dev
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_project_id
 
 # Contract Address
-NEXT_PUBLIC_CONTRACT_ADDRESS=0x4a69Db2288Bb9868Bf6eB87FFBcfaeebB51231e8
+NEXT_PUBLIC_CONTRACT_ADDRESS=0x820D442CC6BB930307183926C7805212668C7Cff
 
 # RPC URLs
 SEPOLIA_RPC_URL=https://ethereum-sepolia.publicnode.com

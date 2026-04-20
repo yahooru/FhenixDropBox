@@ -77,14 +77,23 @@ export default function FilesPage() {
 
   const fileIds = myFileIds || []
 
-  // Fetch all file info in batch
-  const { data: filesInfo } = useReadContract({
-    address: CONTRACT_ADDRESS as `0x${string}`,
-    abi: FHENIX_DROPBOX_ABI,
-    functionName: 'getFileInfo',
-    args: [fileIds[0] || BigInt(0)],
-    query: { enabled: fileIds.length > 0 }
-  })
+  // Fetch file info for each file
+  const [filesData, setFilesData] = useState<Record<number, any>>({})
+
+  useEffect(() => {
+    const fetchFileData = async () => {
+      if (!fileIds || fileIds.length === 0) return
+      const data: Record<number, any> = {}
+      // For now just use the IDs, contract calls will be done via hooks
+      fileIds.forEach((id: bigint, index: number) => {
+        data[Number(id)] = { id: id.toString(), loading: true }
+      })
+      setFilesData(data)
+    }
+    if (fileIds.length > 0) {
+      fetchFileData()
+    }
+  }, [fileIds])
 
   // Format timestamp
   const formatTimestamp = (timestamp: number): string => {
@@ -112,7 +121,7 @@ export default function FilesPage() {
     downloads: 0,
     price: "0 USDC",
     status: "active" as const,
-    createdAt: 'Fetching...',
+    createdAt: 'Loading...',
     contentEncrypted: false,
     ipfsHash: ''
   }))
