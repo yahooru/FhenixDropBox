@@ -2,7 +2,7 @@
 
 ![FhenixDropBox Logo](asserts/Open_Cardboard_Box_PNG_Clip_Art-1284.png)
 
-live url - 
+live url - https://fhenixdropbox.vercel.app
 
 A privacy-first decentralized file sharing platform built on Fhenix with encrypted access control. Share files with complete privacy using Fully Homomorphic Encryption (FHE).
 
