@@ -1,53 +1,26 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi"
 import Link from "next/link"
-import { Search, FileText, MoreVertical, Download, Share2, Trash2, ExternalLink, Lock, CheckCircle2, Loader2, Plus, Eye, EyeOff, FolderPlus, Link2, QrCode, Copy } from "lucide-react"
-import { FHENIX_DROPBOX_ABI, CONTRACT_ADDRESS } from "@/lib/fhenix"
+import {
+  Search, FileText, MoreVertical, Download, Share2,
+  Trash2, ExternalLink, Lock, CheckCircle2, Loader2,
+  Plus, Eye, EyeOff, FolderPlus, Link2, QrCode, Copy,
+  Shield, Upload, Folder, TrendingUp, Calendar, Hash
+} from "lucide-react"
+import { FHENIX_DROPBOX_ABI, CONTRACT_ADDRESS, formatUSDC } from "@/lib/fhenix"
 import { QRCodeSVG } from "qrcode.react"
-
-// Coming soon tooltip component
-function ComingSoon({ children, label }: { children: React.ReactNode; label: string }) {
-  const [showTooltip, setShowTooltip] = useState(false)
-
-  return (
-    <div className="relative">
-      <div
-        onMouseEnter={() => setShowTooltip(true)}
-        onMouseLeave={() => setShowTooltip(false)}
-        className="cursor-not-allowed opacity-50"
-      >
-        {children}
-      </div>
-      {showTooltip && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#111] text-white text-xs rounded-lg whitespace-nowrap z-50">
-          {label}
-          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#111]" />
-        </div>
-      )}
-    </div>
-  )
-}
-
-const fileTypeColors: Record<string, { bg: string; text: string }> = {
-  pdf: { bg: "bg-red-50", text: "text-red-600" },
-  xlsx: { bg: "bg-emerald-50", text: "text-emerald-600" },
-  docx: { bg: "bg-blue-50", text: "text-blue-600" },
-  zip: { bg: "bg-amber-50", text: "text-amber-600" },
-  pptx: { bg: "bg-orange-50", text: "text-orange-600" },
-  default: { bg: "bg-gray-50", text: "text-gray-600" }
-}
 
 export default function FilesPage() {
   const { address, isConnected } = useAccount()
   const [searchQuery, setSearchQuery] = useState("")
-  const [filterStatus, setFilterStatus] = useState<string>("all")
   const [selectedFiles, setSelectedFiles] = useState<string[]>([])
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
-  const [qrModalFile, setQrModalFile] = useState<{ fileId: string; fileName: string } | null>(null)
+  const [qrModalFile, setQrModalFile] = useState<{ fileId: string; fileName: string; ipfsHash?: string } | null>(null)
   const [mounted, setMounted] = useState(false)
-  const [baseUrl, setBaseUrl] = useState<string>('')
+  const [baseUrl, setBaseUrl] = useState('')
+  const [copiedId, setCopiedId] = useState<string | null>(null)
 
   useEffect(() => {
     setMounted(true)
@@ -62,7 +35,6 @@ export default function FilesPage() {
     query: { enabled: isConnected && !!address && mounted }
   })
 
-  // Force refetch when component mounts or when address changes
   useEffect(() => {
     if (mounted && isConnected && address) {
       refetchFiles()
@@ -84,62 +56,36 @@ export default function FilesPage() {
 
   const fileIds = myFileIds ? Array.from(myFileIds) : []
 
-  // Format timestamp
-  const formatTimestamp = (timestamp: number): string => {
-    if (!timestamp) return 'N/A'
-    const date = new Date(timestamp * 1000)
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-  }
-
-  // Generate URL hash for share link
-  const generateHash = (input: string): string => {
-    let hash = 0
-    for (let i = 0; i < input.length; i++) {
-      const char = input.charCodeAt(i)
-      hash = ((hash << 5) - hash) + char
-      hash = hash & hash
+  const copyToClipboard = useCallback(async (text: string, fileId?: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      if (fileId) {
+        setCopiedId(fileId)
+        setTimeout(() => setCopiedId(null), 2000)
+      }
+    } catch (err) {
+      console.error('Failed to copy:', err)
     }
-    return Math.abs(hash).toString(16).padStart(8, '0').toUpperCase()
-  }
+  }, [])
 
-  // Create file list from fileIds
-  const filesList = fileIds.map((id: bigint, index: number) => {
+  const filesList = fileIds.map((id: bigint) => {
     const idStr = id.toString()
     return {
       id: idStr,
       name: `File #${idStr}`,
-      size: "N/A",
-      type: "file",
-      downloads: 0,
-      price: "0 USDC",
-      status: "active" as const,
-      createdAt: formatTimestamp(Date.now() / 1000 - (index * 3600)),
-      contentEncrypted: false,
-      ipfsHash: ''
+      ipfsHash: '',
+      size: "Encrypted",
+      status: "active",
+      createdAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     }
   })
 
-  // Filter files based on search
   const filteredFiles = filesList.filter(file =>
-    file.name.toLowerCase().includes(searchQuery.toLowerCase())
+    file.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    file.ipfsHash?.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
-  const toggleSelectFile = (id: string) => {
-    setSelectedFiles(prev =>
-      prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]
-    )
-  }
-
-  const toggleSelectAll = () => {
-    if (selectedFiles.length === filteredFiles.length) {
-      setSelectedFiles([])
-    } else {
-      setSelectedFiles(filteredFiles.map(f => f.id))
-    }
-  }
-
-  const { writeContract, isPending: isDeactivating } = useWriteContract()
-  const { isLoading: isWaitingTx } = useWaitForTransactionReceipt({ hash: undefined as any })
+  const { writeContract } = useWriteContract()
 
   const handleDeactivate = (fileId: string) => {
     writeContract({
@@ -150,305 +96,261 @@ export default function FilesPage() {
     })
   }
 
-  const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch (err) {
-      console.error('Failed to copy:', err)
-    }
+  const handleShareClick = (fileId: string) => {
+    window.open(`/share/${fileId}`, '_blank')
   }
 
   if (!mounted) {
     return (
-      <div className="p-6">
-        <div className="animate-pulse space-y-6">
-          <div className="h-8 w-48 bg-black/[0.05] rounded-lg" />
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-24 bg-black/[0.05] rounded-xl" />
-            ))}
-          </div>
+      <div className="p-6 space-y-6">
+        <div className="h-16 w-64 bg-black/[0.05] rounded-2xl animate-pulse" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-28 bg-black/[0.05] rounded-2xl animate-pulse" />
+          ))}
         </div>
       </div>
     )
   }
 
   return (
-    <div className="space-y-6">
+    <div className="p-6 space-y-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-medium">My Files</h1>
-          <p className="text-sm text-black/50">
-            Manage and monitor your uploaded files
-          </p>
+          <h1 className="text-2xl font-semibold text-[#111]">My Files</h1>
+          <p className="text-sm text-black/50 mt-1">Manage and share your encrypted files</p>
         </div>
         <Link
           href="/upload"
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#111] text-white text-sm hover:bg-[#333] transition-colors"
+          className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#111] text-white text-sm font-medium hover:bg-[#222] transition-all shadow-lg hover:shadow-xl"
         >
-          <Plus className="w-4 h-4" />
-          Upload
+          <Upload className="w-4 h-4" />
+          Upload Files
         </Link>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-black/[0.07] p-4">
-          <div className="text-2xl font-medium">{filesLoading ? "..." : myFileCount}</div>
-          <div className="text-xs text-black/40">My Files</div>
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 rounded-2xl p-5 border border-blue-200/50">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
+              <Folder className="w-5 h-5 text-blue-600" />
+            </div>
+          </div>
+          <div className="text-3xl font-bold text-blue-700">{filesLoading ? "..." : myFileCount}</div>
+          <div className="text-xs text-blue-600/70 mt-1">My Files</div>
         </div>
-        <div className="bg-white rounded-xl border border-black/[0.07] p-4">
-          <div className="text-2xl font-medium">{totalDownloads}</div>
-          <div className="text-xs text-black/40">Downloads</div>
+
+        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 rounded-2xl p-5 border border-emerald-200/50">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+              <Download className="w-5 h-5 text-emerald-600" />
+            </div>
+          </div>
+          <div className="text-3xl font-bold text-emerald-700">{totalDownloads}</div>
+          <div className="text-xs text-emerald-600/70 mt-1">Total Downloads</div>
         </div>
-        <div className="bg-white rounded-xl border border-black/[0.07] p-4">
-          <div className="text-2xl font-medium">{totalVolume.toFixed(2)}</div>
-          <div className="text-xs text-black/40">USDC Earned</div>
+
+        <div className="bg-gradient-to-br from-amber-50 to-amber-100/50 rounded-2xl p-5 border border-amber-200/50">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
+              <TrendingUp className="w-5 h-5 text-amber-600" />
+            </div>
+          </div>
+          <div className="text-3xl font-bold text-amber-700">{totalVolume.toFixed(2)}</div>
+          <div className="text-xs text-amber-600/70 mt-1">USDC Earned</div>
         </div>
-        <div className="bg-white rounded-xl border border-black/[0.07] p-4">
-          <div className="text-2xl font-medium">{totalFiles}</div>
-          <div className="text-xs text-black/40">Total Platform</div>
+
+        <div className="bg-gradient-to-br from-purple-50 to-purple-100/50 rounded-2xl p-5 border border-purple-200/50">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center">
+              <Shield className="w-5 h-5 text-purple-600" />
+            </div>
+          </div>
+          <div className="text-3xl font-bold text-purple-700">{totalFiles}</div>
+          <div className="text-xs text-purple-600/70 mt-1">Total Platform</div>
         </div>
       </div>
 
-      {/* Search and Filter */}
-      <div className="flex flex-col sm:flex-row gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-black/30" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search files..."
-            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-black/[0.1] bg-white text-sm"
-          />
-        </div>
-        <div className="flex gap-2">
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="px-4 py-2.5 rounded-xl border border-black/[0.1] bg-white text-sm"
-          >
-            <option value="all">All Status</option>
-            <option value="active">Active</option>
-            <option value="paused">Paused</option>
-          </select>
-        </div>
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-black/30" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search files by name or ID..."
+          className="w-full pl-12 pr-4 py-3.5 rounded-2xl border border-black/[0.08] bg-white text-sm focus:outline-none focus:border-black/[0.2] focus:ring-2 focus:ring-black/[0.05] transition-all"
+        />
       </div>
 
-      {/* Files Table */}
-      <div className="bg-white rounded-2xl border border-black/[0.07] overflow-hidden">
+      {/* Files Grid */}
+      <div className="bg-white rounded-3xl border border-black/[0.08] overflow-hidden shadow-sm">
         {filesLoading ? (
-          <div className="p-12 text-center">
-            <Loader2 className="w-8 h-8 animate-spin text-black/30 mx-auto mb-4" />
-            <div className="text-sm text-black/50">Loading files from blockchain...</div>
+          <div className="p-20 text-center">
+            <div className="w-16 h-16 rounded-full bg-black/[0.05] flex items-center justify-center mx-auto mb-4">
+              <Loader2 className="w-8 h-8 animate-spin text-black/30" />
+            </div>
+            <div className="text-sm text-black/50">Loading from blockchain...</div>
           </div>
         ) : fileIds.length === 0 ? (
-          <div className="py-16 text-center">
-            <FileText className="w-12 h-12 text-black/20 mx-auto mb-4" />
-            <div className="text-sm text-black/50 mb-4">No files uploaded yet</div>
+          <div className="p-20 text-center">
+            <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-[#f5f4f0] to-[#e8e6e0] flex items-center justify-center mx-auto mb-6">
+              <FileText className="w-12 h-12 text-black/20" />
+            </div>
+            <h3 className="text-lg font-medium text-black/70 mb-2">No files uploaded yet</h3>
+            <p className="text-sm text-black/40 mb-6 max-w-sm mx-auto">
+              Upload your first file and start sharing with complete privacy protection
+            </p>
             <Link
               href="/upload"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#111] text-white text-sm"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#111] text-white text-sm font-medium hover:bg-[#222] transition-all"
             >
-              <Plus className="w-4 h-4" />
+              <Upload className="w-4 h-4" />
               Upload Your First File
             </Link>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-black/[0.06]">
-                  <th className="px-4 py-3 text-left">
-                    <input
-                      type="checkbox"
-                      checked={selectedFiles.length === filteredFiles.length && filteredFiles.length > 0}
-                      onChange={toggleSelectAll}
-                      className="rounded border-black/[0.2]"
-                    />
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-black/40 uppercase">File</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-black/40 uppercase">Uploaded</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-black/40 uppercase">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-black/40 uppercase">Downloads</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-black/40 uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredFiles.map((file) => (
-                  <tr key={file.id} className="border-b border-black/[0.04] hover:bg-black/[0.02] transition-colors">
-                    <td className="px-4 py-4">
-                      <input
-                        type="checkbox"
-                        checked={selectedFiles.includes(file.id)}
-                        onChange={() => toggleSelectFile(file.id)}
-                        className="rounded border-black/[0.2]"
-                      />
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${fileTypeColors.default.bg}`}>
-                          <FileText className={`w-5 h-5 ${fileTypeColors.default.text}`} />
-                        </div>
-                        <div>
-                          <div className="font-medium text-sm">{file.name}</div>
-                          <div className="text-xs text-black/40">ID: {file.id}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 text-sm text-black/50">
-                      {file.createdAt}
-                    </td>
-                    <td className="px-4 py-4">
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        Active
+          <div className="divide-y divide-black/[0.04]">
+            {filteredFiles.map((file, index) => (
+              <div
+                key={file.id}
+                className="p-5 hover:bg-black/[0.02] transition-colors group"
+              >
+                <div className="flex items-center gap-4">
+                  {/* File Icon */}
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#f5f4f0] to-[#e8e6e0] flex items-center justify-center shrink-0">
+                    <FileText className="w-7 h-7 text-black/40" />
+                  </div>
+
+                  {/* File Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-medium text-[#111] truncate">{file.name}</h3>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium">
+                        <Lock className="w-3 h-3" />
+                        Encrypted
                       </span>
-                    </td>
-                    <td className="px-4 py-4 text-sm">
-                      {file.downloads}
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => setQrModalFile({ fileId: file.id, fileName: file.name })}
-                          className="p-2 rounded-lg hover:bg-black/[0.04] transition-colors"
-                          title="QR Code"
-                        >
-                          <QrCode className="w-4 h-4 text-black/40" />
-                        </button>
-                        <Link
-                          href={`/share/${file.id}`}
-                          className="p-2 rounded-lg hover:bg-black/[0.04] transition-colors"
-                          title="Share"
-                        >
-                          <Share2 className="w-4 h-4 text-black/40" />
-                        </Link>
-                        <button
-                          onClick={() => copyToClipboard(`${baseUrl}/share/${file.id}`)}
-                          className="p-2 rounded-lg hover:bg-black/[0.04] transition-colors"
-                          title="Copy Link"
-                        >
-                          <Copy className="w-4 h-4 text-black/40" />
-                        </button>
-                        <div className="relative">
-                          <button
-                            onClick={() => setActiveMenu(activeMenu === file.id ? null : file.id)}
-                            className="p-2 rounded-lg hover:bg-black/[0.04] transition-colors"
-                          >
-                            <MoreVertical className="w-4 h-4 text-black/40" />
-                          </button>
-                          {activeMenu === file.id && (
-                            <div className="absolute right-0 mt-1 w-40 rounded-xl bg-white border border-black/[0.1] shadow-lg overflow-hidden z-10">
-                              <ComingSoon label="Coming in Wave 3">
-                                <button className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-black/[0.04]">
-                                  <Eye className="w-4 h-4" />
-                                  View Preview
-                                </button>
-                              </ComingSoon>
-                              <ComingSoon label="Coming in Wave 3">
-                                <button className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-black/[0.04]">
-                                  <FolderPlus className="w-4 h-4" />
-                                  Add to Folder
-                                </button>
-                              </ComingSoon>
-                              <ComingSoon label="Coming in Wave 3">
-                                <button className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-black/[0.04]">
-                                  <Link2 className="w-4 h-4" />
-                                  Set Link Expiry
-                                </button>
-                              </ComingSoon>
-                              <div className="border-t border-black/[0.06]" />
-                              <button
-                                onClick={() => handleDeactivate(file.id)}
-                                className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-black/[0.04] text-red-600"
-                              >
-                                <EyeOff className="w-4 h-4" />
-                                Deactivate
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </div>
+                    <div className="flex items-center gap-4 mt-1.5 text-xs text-black/40">
+                      <span className="inline-flex items-center gap-1">
+                        <Hash className="w-3 h-3" />
+                        ID: {file.id}
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <Calendar className="w-3 h-3" />
+                        {file.createdAt}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => setQrModalFile({ fileId: file.id, fileName: file.name })}
+                      className="p-2.5 rounded-xl hover:bg-black/[0.05] transition-colors bg-black/[0.02]"
+                      title="QR Code"
+                    >
+                      <QrCode className="w-5 h-5 text-black/50" />
+                    </button>
+                    <button
+                      onClick={() => handleShareClick(file.id)}
+                      className="p-2.5 rounded-xl hover:bg-black/[0.05] transition-colors bg-black/[0.02]"
+                      title="Share"
+                    >
+                      <Share2 className="w-5 h-5 text-black/50" />
+                    </button>
+                    <button
+                      onClick={() => copyToClipboard(`${baseUrl}/share/${file.id}`, file.id)}
+                      className={`p-2.5 rounded-xl transition-colors ${
+                        copiedId === file.id
+                          ? 'bg-emerald-100 text-emerald-600'
+                          : 'bg-black/[0.02] hover:bg-black/[0.05]'
+                      }`}
+                      title="Copy Link"
+                    >
+                      {copiedId === file.id ? (
+                        <CheckCircle2 className="w-5 h-5" />
+                      ) : (
+                        <Copy className="w-5 h-5 text-black/50" />
+                      )}
+                    </button>
+                    <Link
+                      href={`/share/${file.id}`}
+                      className="px-4 py-2 rounded-xl bg-[#111] text-white text-xs font-medium hover:bg-[#222] transition-colors flex items-center gap-1.5"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      View
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
 
-      {/* Contract Info */}
-      <div className="bg-white rounded-2xl border border-black/[0.07] p-4">
-        <div className="flex items-center justify-between text-xs text-black/40">
-          <span>Data stored on Ethereum Sepolia</span>
-          <a
-            href={`https://sepolia.etherscan.io/address/${CONTRACT_ADDRESS}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 hover:text-black transition-colors"
-          >
-            View Contract
-            <ExternalLink className="w-3 h-3" />
-          </a>
-        </div>
+      {/* Footer */}
+      <div className="flex items-center justify-between text-xs text-black/40 py-2">
+        <span className="inline-flex items-center gap-1.5">
+          <Shield className="w-3.5 h-3.5" />
+          Protected by Fhenix FHE on Ethereum Sepolia
+        </span>
+        <a
+          href={`https://sepolia.etherscan.io/address/${CONTRACT_ADDRESS}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 hover:text-black transition-colors"
+        >
+          View Contract
+          <ExternalLink className="w-3.5 h-3.5" />
+        </a>
       </div>
 
-      {/* Bulk Actions */}
-      {selectedFiles.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[#111] text-white px-6 py-3 rounded-xl flex items-center gap-4 shadow-2xl">
-          <span className="text-sm">{selectedFiles.length} selected</span>
-          <div className="flex gap-2">
-            <ComingSoon label="Coming in Wave 3">
-              <button className="px-3 py-1.5 rounded-lg bg-white/10 text-xs opacity-50 cursor-not-allowed">
-                Deactivate
-              </button>
-            </ComingSoon>
-            <button
-              onClick={() => setSelectedFiles([])}
-              className="px-3 py-1.5 rounded-lg bg-white/10 text-xs hover:bg-white/20"
-            >
-              Clear
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* QR Code Modal */}
-      {qrModalFile && mounted && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setQrModalFile(null)}>
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4" onClick={e => e.stopPropagation()}>
-            <div className="text-center mb-4">
-              <h3 className="text-lg font-medium">Scan to Access</h3>
-              <p className="text-sm text-black/50">{qrModalFile.fileName}</p>
+      {/* QR Modal */}
+      {qrModalFile && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setQrModalFile(null)}>
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#f5f4f0] to-[#e8e6e0] flex items-center justify-center mx-auto mb-4">
+                <QrCode className="w-8 h-8 text-black/40" />
+              </div>
+              <h3 className="text-xl font-semibold text-[#111]">Scan to Access</h3>
+              <p className="text-sm text-black/50 mt-1">{qrModalFile.fileName}</p>
             </div>
-            <div className="bg-white p-4 rounded-xl border border-black/[0.1] flex items-center justify-center mb-4">
+
+            <div className="bg-white p-4 rounded-2xl border-2 border-black/[0.08] flex items-center justify-center mb-6">
               <QRCodeSVG
                 value={`${baseUrl}/share/${qrModalFile.fileId}`}
                 size={180}
                 level="H"
+                includeMargin={false}
               />
             </div>
-            <div className="text-center mb-4">
-              <div className="text-xs text-black/40 mb-1">Secure Link</div>
-              <div className="text-xs font-mono text-black/60 break-all">{`${baseUrl}/share/${qrModalFile.fileId}`}</div>
+
+            <div className="bg-[#f5f4f0] rounded-xl p-3 mb-6">
+              <div className="text-xs text-black/40 mb-1 text-center">Share Link</div>
+              <div className="text-xs font-mono text-[#111] text-center break-all">
+                {`${baseUrl}/share/${qrModalFile.fileId}`}
+              </div>
             </div>
-            <button
-              onClick={() => copyToClipboard(`${baseUrl}/share/${qrModalFile.fileId}`)}
-              className="w-full py-3 rounded-xl bg-[#111] text-white text-sm flex items-center justify-center gap-2"
-            >
-              <Copy className="w-4 h-4" />
-              Copy Link
-            </button>
-            <button
-              onClick={() => setQrModalFile(null)}
-              className="w-full mt-2 py-3 rounded-xl border border-black/[0.1] text-sm"
-            >
-              Close
-            </button>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => copyToClipboard(`${baseUrl}/share/${qrModalFile.fileId}`)}
+                className="flex-1 py-3.5 rounded-xl bg-[#111] text-white text-sm font-medium hover:bg-[#222] transition-colors flex items-center justify-center gap-2"
+              >
+                <Copy className="w-4 h-4" />
+                Copy Link
+              </button>
+              <button
+                onClick={() => setQrModalFile(null)}
+                className="px-6 py-3.5 rounded-xl border border-black/[0.1] text-sm hover:bg-black/[0.02] transition-colors"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
