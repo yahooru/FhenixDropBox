@@ -2,198 +2,141 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @title FhenixDropBox
-/// @notice Privacy-first decentralized file sharing with FHE-encrypted access control.
-/// @dev Access rules (price, maxDownloads, expiry, access codes) are stored encrypted.
-///      File content is encrypted client-side before IPFS upload.
+/// @notice Privacy-first decentralized file sharing with on-chain access rules,
+/// folders, webhook registration, previews, and batch download accounting.
+/// @dev The current production path uses native testnet ETH for access payments.
+/// CoFHE/FHE encrypted rule storage should be added with the Fhenix cofhe-contracts package
+/// when the app moves from public testnet payments to confidential payment rails.
 contract FhenixDropBox is Ownable, ReentrancyGuard {
-
-    // ─── FHE Types Placeholder ─────────────────────────────────────────────────────
-    // In production, import FHE.sol from @fhenixprotocol/fhe-contracts:
-    // import "@fhenixprotocol/contracts/FHE.sol";
-    // Use encrypted types: euint64, euint128, ebool, encrypted addresses, etc.
-    //
-    // For demo/development, we use standard Solidity types but document where
-    // FHE encrypted types would replace them.
-
-    // ═══════════════════════════════════════════════════════════════════════════════
-    // ENCRYPTED STATE VARIABLES (where FHE types would be used)
-    // ═══════════════════════════════════════════════════════════════════════════════
-    //
-    // In production FHE version:
-    //   euint64 internal encryptedPrice;        // replaces: uint256 price
-    //   euint64 internal encryptedMaxDownloads; // replaces: uint256 maxDownloads
-    //   euint64 internal encryptedDownloadCount; // replaces: uint256 downloadCount
-    //   ebool  internal encryptedHasPassword;   // replaces: bool hasPassword
-    //   euint64 internal encryptedAccessCode;  // replaces: bytes32 passwordHash
-    //
-    // These would be set via: FHE.asEuint64(encryptedInput), FHE.asEbool(encryptedInput)
-    // and compared on-chain via: FHE.eq(), FHE.lt(), FHE.gte(), etc.
-
-    // ─── Data Structures ────────────────────────────────────────────────────────
+    uint256 public constant MAX_BATCH_SIZE = 10;
+    uint256 public constant MAX_PRICE = 100 ether;
 
     struct File {
-        string ipfsHash;          // IPFS CID of encrypted file blob
+        string ipfsHash;
+        string fileName;
+        string mimeType;
+        uint256 fileSize;
         uint256 createdAt;
-        uint256 price;             // In production: euint128 encryptedPrice
-        uint256 maxDownloads;      // In production: euint64 encryptedMaxDownloads
-        uint256 downloadCount;    // In production: euint64 encryptedDownloadCount
+        uint256 price;
+        uint256 maxDownloads;
+        uint256 downloadCount;
         uint256 expiresAt;
-        bytes32 accessCodeHash;    // Hash of numeric access code (FHE would use encryptedAccessCode)
+        bytes32 accessCodeHash;
         address owner;
         bool isActive;
-        bool hasPassword;          // In production: ebool encryptedHasPassword
-        bool contentEncrypted;    // NEW: Was the file content encrypted before upload?
-        bytes32 encryptionKeyHash;  // NEW: Hash of key used for content encryption (for access grant)
-    }
-
-    struct FileAccessInfo {
-        bool isAuthorized;
-        bool hasDownloaded;
-    }
-
-    struct FileUploadedEvent {
-        uint256 fileId;
-        address owner;
-        string ipfsHash;
-        uint256 price;
         bool hasPassword;
         bool contentEncrypted;
+        bytes32 encryptionKeyHash;
+        uint256 folderId;
+        bool previewEnabled;
+        string previewHash;
+        bool anonymousUpload;
     }
 
-    // ─── State Variables ───────────────────────────────────────────────────────
+    struct UploadInput {
+        string ipfsHash;
+        string fileName;
+        string mimeType;
+        uint256 fileSize;
+        uint256 price;
+        uint256 maxDownloads;
+        uint256 expiryDays;
+        bytes32 accessCodeHash;
+        bool contentEncrypted;
+        bytes32 encryptionKeyHash;
+        uint256 folderId;
+        bool previewEnabled;
+        string previewHash;
+        bool anonymousUpload;
+    }
+
+    struct Folder {
+        uint256 id;
+        address owner;
+        string name;
+        string color;
+        uint256 createdAt;
+        uint256 fileCount;
+        bool isActive;
+    }
+
+    struct Webhook {
+        uint256 id;
+        address owner;
+        bytes32 endpointHash;
+        string label;
+        uint8 eventMask;
+        bool isActive;
+        uint256 createdAt;
+    }
 
     mapping(uint256 => File) public files;
     mapping(address => uint256[]) public userFiles;
     mapping(uint256 => mapping(address => bool)) public authorizedUsers;
     mapping(uint256 => mapping(address => bool)) public downloadHistory;
 
+    mapping(uint256 => Folder) public folders;
+    mapping(address => uint256[]) public userFolders;
+
+    mapping(uint256 => Webhook) public webhooks;
+    mapping(address => uint256[]) public userWebhooks;
+
     uint256 public totalFiles;
     uint256 public totalDownloads;
     uint256 public totalVolume;
-
-    // Supported payment token (USDC on Sepolia)
-    address public constant USDC_TOKEN = 0x1AdF1AdF1aDF1ADf1ADf1aDf1aDF1adf1ADF1AD0;
-
-    // ─── Events ────────────────────────────────────────────────────────────────
+    uint256 public totalFolders;
+    uint256 public totalWebhooks;
 
     event FileUploaded(
         uint256 indexed fileId,
         address indexed owner,
         string ipfsHash,
+        string fileName,
+        uint256 folderId,
         uint256 price,
         bool hasPassword,
-        bool contentEncrypted
+        bool contentEncrypted,
+        string previewHash,
+        bool anonymousUpload
     );
 
-    event FileAccessed(
-        uint256 indexed fileId,
-        address indexed requester,
-        uint256 price
-    );
-
-    event FileDownloaded(
-        uint256 indexed fileId,
-        address indexed downloader,
-        address indexed owner
-    );
-
+    event FileAccessed(uint256 indexed fileId, address indexed requester, uint256 price);
+    event FileDownloaded(uint256 indexed fileId, address indexed downloader, address indexed owner);
+    event BatchDownloaded(address indexed downloader, uint256[] fileIds);
     event FileDeactivated(uint256 indexed fileId);
     event FileReactivated(uint256 indexed fileId);
+    event FileRulesUpdated(uint256 indexed fileId, uint256 price, uint256 maxDownloads, uint256 expiresAt, bool hasPassword);
+    event FileMetadataUpdated(uint256 indexed fileId, string fileName, string mimeType, uint256 folderId, string previewHash);
     event AccessRevoked(uint256 indexed fileId, address indexed user);
-
-    // ═══════════════════════════════════════════════════════════════════════════════
-    // FHE-ENCRYPTED ACCESS RULE FUNCTIONS
-    // ═══════════════════════════════════════════════════════════════════════════════
-    //
-    // The following functions demonstrate where FHE types would be used.
-    // In production, these would accept encrypted inputs and perform on-chain
-    // comparisons without revealing the underlying values.
-    //
-    // Example production patterns:
-    //
-    // function uploadFileEncrypted(
-    //     string calldata ipfsHash_,
-    //     bytes calldata encryptedPrice,      // InEuint128
-    //     bytes calldata encryptedMaxDownloads, // InEuint64
-    //     uint256 expiryDays_,
-    //     bytes calldata encryptedAccessCode  // InEuint64
-    // ) external returns (uint256 fileId) {
-    //     euint128 price = FHE.asEuint128(encryptedPrice);
-    //     euint64 maxDownloads = FHE.asEuint64(encryptedMaxDownloads);
-    //     euint64 accessCode = FHE.asEuint64(encryptedAccessCode);
-    //
-    //     fileId = totalFiles++;
-    //     files[fileId] = File({
-    //         ipfsHash: ipfsHash_,
-    //         price: price,
-    //         maxDownloads: maxDownloads,
-    //         accessCodeHash: FHE.eq(accessCode, storedCode),
-    //         // ...
-    //     });
-    // }
-    //
-    // function checkAccessEncrypted(
-    //     uint256 fileId,
-    //     bytes calldata encryptedUserCode  // InEuint64
-    // ) external view returns (ebool accessGranted) {
-    //     euint64 userCode = FHE.asEuint64(encryptedUserCode);
-    //     ebool matches = FHE.eq(userCode, files[fileId].encryptedAccessCode);
-    //     return matches;
-    // }
-
-    // ─── Modifiers ─────────────────────────────────────────────────────────────
-
-    modifier onlyFileOwner(uint256 fileId) {
-        require(files[fileId].owner == msg.sender, "Not file owner");
-        _;
-    }
+    event FolderCreated(uint256 indexed folderId, address indexed owner, string name, string color);
+    event FolderUpdated(uint256 indexed folderId, string name, string color, bool isActive);
+    event FileMoved(uint256 indexed fileId, uint256 indexed oldFolderId, uint256 indexed newFolderId);
+    event FilePrivacyUpdated(uint256 indexed fileId, bool anonymousUpload);
+    event WebhookRegistered(uint256 indexed webhookId, address indexed owner, bytes32 endpointHash, uint8 eventMask);
+    event WebhookUpdated(uint256 indexed webhookId, bytes32 endpointHash, uint8 eventMask, bool isActive);
 
     modifier fileExists(uint256 fileId) {
         require(files[fileId].owner != address(0), "File does not exist");
         _;
     }
 
-    modifier fileActive(uint256 fileId) {
-        require(files[fileId].isActive, "File is not active");
+    modifier onlyFileOwner(uint256 fileId) {
+        require(files[fileId].owner == msg.sender, "Not file owner");
         _;
     }
 
-    modifier notExpired(uint256 fileId) {
-        if (files[fileId].expiresAt > 0) {
-            require(block.timestamp < files[fileId].expiresAt, "File has expired");
-        }
+    modifier folderExists(uint256 folderId) {
+        require(folderId == 0 || folders[folderId].owner != address(0), "Folder does not exist");
         _;
     }
 
-    modifier hasDownloadsLeft(uint256 fileId) {
-        uint256 max = files[fileId].maxDownloads;
-        if (max > 0) {
-            require(files[fileId].downloadCount < max, "No downloads remaining");
-        }
-        _;
-    }
+    constructor() Ownable(msg.sender) {}
 
-    // ─── Constructor ───────────────────────────────────────────────────────────
-
-    constructor() Ownable(msg.sender) {
-        // Owner is the deployer
-    }
-
-    // ─── File Management ───────────────────────────────────────────────────────
-
-    /// @notice Upload a new file with encrypted access rules
-    /// @param ipfsHash_ IPFS content identifier
-    /// @param price_ Access price in USDC (6 decimals)
-    /// @param maxDownloads_ Max downloads (0 = unlimited)
-    /// @param expiryDays_ Days until expiry (0 = never)
-    /// @param accessCodeHash_ Hash of numeric access code (0 = no password)
-    /// @param contentEncrypted_ Whether file content was encrypted before upload
-    /// @param encryptionKeyHash_ Hash of content encryption key for access grants
-    /// @return fileId The ID of the uploaded file
+    /// @notice Backward-compatible upload entrypoint used by earlier app versions.
     function uploadFile(
         string calldata ipfsHash_,
         uint256 price_,
@@ -203,115 +146,246 @@ contract FhenixDropBox is Ownable, ReentrancyGuard {
         bool contentEncrypted_,
         bytes32 encryptionKeyHash_
     ) external returns (uint256 fileId) {
-        require(bytes(ipfsHash_).length > 0, "IPFS hash required");
-        require(price_ < 1e12, "Price too high"); // Max 1M USDC
-
-        fileId = totalFiles++;
-        uint256 expiresAt = expiryDays_ > 0
-            ? block.timestamp + (expiryDays_ * 1 days)
-            : 0;
-
-        files[fileId] = File({
+        UploadInput memory input = UploadInput({
             ipfsHash: ipfsHash_,
-            createdAt: block.timestamp,
+            fileName: "",
+            mimeType: "",
+            fileSize: 0,
             price: price_,
             maxDownloads: maxDownloads_,
-            downloadCount: 0,
-            expiresAt: expiresAt,
+            expiryDays: expiryDays_,
             accessCodeHash: accessCodeHash_,
-            owner: msg.sender,
-            isActive: true,
-            hasPassword: accessCodeHash_ != bytes32(0),
             contentEncrypted: contentEncrypted_,
-            encryptionKeyHash: encryptionKeyHash_
+            encryptionKeyHash: encryptionKeyHash_,
+            folderId: 0,
+            previewEnabled: false,
+            previewHash: "",
+            anonymousUpload: false
         });
 
-        userFiles[msg.sender].push(fileId);
+        return _uploadFile(input, msg.sender);
+    }
 
+    /// @notice Upload one file with Wave 3/4 metadata.
+    function uploadFileDetailed(UploadInput calldata input) external returns (uint256 fileId) {
+        UploadInput memory copied = input;
+        return _uploadFile(copied, msg.sender);
+    }
+
+    /// @notice Upload up to 10 files in a single transaction.
+    function uploadFilesBatch(UploadInput[] calldata inputs) external returns (uint256[] memory fileIds) {
+        require(inputs.length > 0, "No files");
+        require(inputs.length <= MAX_BATCH_SIZE, "Too many files");
+
+        fileIds = new uint256[](inputs.length);
+        for (uint256 i = 0; i < inputs.length; i++) {
+            UploadInput memory copied = inputs[i];
+            fileIds[i] = _uploadFile(copied, msg.sender);
+        }
+    }
+
+    function _uploadFile(UploadInput memory input, address owner_) internal returns (uint256 fileId) {
+        require(bytes(input.ipfsHash).length > 0, "IPFS hash required");
+        require(input.price <= MAX_PRICE, "Price too high");
+        _requireOwnedFolder(input.folderId, owner_);
+
+        fileId = totalFiles++;
+        uint256 expiresAt = input.expiryDays > 0 ? block.timestamp + (input.expiryDays * 1 days) : 0;
+        bool hasPassword = input.accessCodeHash != bytes32(0);
+
+        files[fileId] = File({
+            ipfsHash: input.ipfsHash,
+            fileName: input.fileName,
+            mimeType: input.mimeType,
+            fileSize: input.fileSize,
+            createdAt: block.timestamp,
+            price: input.price,
+            maxDownloads: input.maxDownloads,
+            downloadCount: 0,
+            expiresAt: expiresAt,
+            accessCodeHash: input.accessCodeHash,
+            owner: owner_,
+            isActive: true,
+            hasPassword: hasPassword,
+            contentEncrypted: input.contentEncrypted,
+            encryptionKeyHash: input.encryptionKeyHash,
+            folderId: input.folderId,
+            previewEnabled: input.previewEnabled && bytes(input.previewHash).length > 0,
+            previewHash: input.previewHash,
+            anonymousUpload: input.anonymousUpload
+        });
+
+        userFiles[owner_].push(fileId);
+        if (input.folderId != 0) {
+            folders[input.folderId].fileCount++;
+        }
+
+        address visibleOwner = input.anonymousUpload ? address(0) : owner_;
         emit FileUploaded(
             fileId,
-            msg.sender,
-            ipfsHash_,
-            price_,
-            files[fileId].hasPassword,
-            contentEncrypted_
+            visibleOwner,
+            input.ipfsHash,
+            input.fileName,
+            input.folderId,
+            input.price,
+            hasPassword,
+            input.contentEncrypted,
+            input.previewHash,
+            input.anonymousUpload
         );
     }
 
-    /// @notice Request access to a file (pay for access)
-    /// @param fileId The file to access
-    /// @param accessCode_ The numeric access code (if file is password-protected)
-    function requestAccess(uint256 fileId, bytes32 accessCode_) external payable
-        fileExists(fileId) fileActive(fileId) notExpired(fileId) hasDownloadsLeft(fileId) nonReentrant
-    {
+    /// @notice Request access to a file using native testnet ETH.
+    function requestAccess(uint256 fileId, bytes32 accessCode_) external payable fileExists(fileId) nonReentrant {
         File storage file = files[fileId];
+        _requireAvailable(fileId);
 
-        // Verify access code if required
         if (file.hasPassword) {
             require(file.accessCodeHash == accessCode_, "Invalid access code");
         }
 
-        // Process payment (native token or USDC)
-        if (file.price > 0) {
+        if (msg.sender != file.owner && file.price > 0) {
             require(msg.value >= file.price, "Insufficient payment");
-
-            // Transfer to owner
-            (bool success, ) = file.owner.call{value: file.price}("");
-            require(success, "Payment transfer failed");
-
             totalVolume += file.price;
+
+            (bool paid, ) = file.owner.call{value: file.price}("");
+            require(paid, "Payment transfer failed");
+
+            if (msg.value > file.price) {
+                (bool refunded, ) = msg.sender.call{value: msg.value - file.price}("");
+                require(refunded, "Refund failed");
+            }
+        } else if (msg.value > 0) {
+            (bool refundedFreeAccess, ) = msg.sender.call{value: msg.value}("");
+            require(refundedFreeAccess, "Refund failed");
         }
 
         authorizedUsers[fileId][msg.sender] = true;
         emit FileAccessed(fileId, msg.sender, file.price);
     }
 
-    /// @notice Request access using ERC20 (USDC)
-    /// @param fileId The file to access
-    /// @param accessCode_ The numeric access code
-    /// @param amount_ USDC amount to pay
-    function requestAccessERC20(
-        uint256 fileId,
-        bytes32 accessCode_,
-        uint256 amount_
-    ) external fileExists(fileId) fileActive(fileId) notExpired(fileId) hasDownloadsLeft(fileId) nonReentrant {
-        File storage file = files[fileId];
-
-        // Verify access code
-        if (file.hasPassword) {
-            require(file.accessCodeHash == accessCode_, "Invalid access code");
-        }
-
-        // Process USDC payment
-        if (file.price > 0) {
-            require(amount_ >= file.price, "Insufficient payment");
-            require(
-                IERC20(USDC_TOKEN).transferFrom(msg.sender, file.owner, amount_),
-                "USDC transfer failed"
-            );
-            totalVolume += amount_;
-        }
-
-        authorizedUsers[fileId][msg.sender] = true;
-        emit FileAccessed(fileId, msg.sender, file.price);
+    /// @notice Record a single download after access is granted.
+    function downloadFile(uint256 fileId) external fileExists(fileId) nonReentrant {
+        _recordDownload(fileId, msg.sender);
     }
 
-    /// @notice Download a file after access is granted
-    /// @param fileId The file to download
-    function downloadFile(uint256 fileId) external
-        fileExists(fileId) fileActive(fileId) notExpired(fileId) hasDownloadsLeft(fileId) nonReentrant
-    {
-        require(authorizedUsers[fileId][msg.sender], "Access not granted");
+    /// @notice Record multiple downloads in one transaction.
+    function batchDownloadFiles(uint256[] calldata fileIds) external nonReentrant {
+        require(fileIds.length > 0, "No files");
+        require(fileIds.length <= MAX_BATCH_SIZE, "Too many files");
 
+        for (uint256 i = 0; i < fileIds.length; i++) {
+            require(files[fileIds[i]].owner != address(0), "File does not exist");
+            _recordDownload(fileIds[i], msg.sender);
+        }
+
+        emit BatchDownloaded(msg.sender, fileIds);
+    }
+
+    function _recordDownload(uint256 fileId, address downloader) internal {
         File storage file = files[fileId];
+        _requireAvailable(fileId);
+        require(file.owner == downloader || authorizedUsers[fileId][downloader], "Access not granted");
+        require(!downloadHistory[fileId][downloader], "Already downloaded");
+
         file.downloadCount++;
         totalDownloads++;
-        downloadHistory[fileId][msg.sender] = true;
+        downloadHistory[fileId][downloader] = true;
 
-        emit FileDownloaded(fileId, msg.sender, file.owner);
+        emit FileDownloaded(fileId, downloader, file.anonymousUpload ? address(0) : file.owner);
     }
 
-    /// @notice Get file basic info
+    function createFolder(string calldata name, string calldata color) external returns (uint256 folderId) {
+        require(bytes(name).length > 0, "Folder name required");
+
+        folderId = ++totalFolders;
+        folders[folderId] = Folder({
+            id: folderId,
+            owner: msg.sender,
+            name: name,
+            color: color,
+            createdAt: block.timestamp,
+            fileCount: 0,
+            isActive: true
+        });
+        userFolders[msg.sender].push(folderId);
+
+        emit FolderCreated(folderId, msg.sender, name, color);
+    }
+
+    function updateFolder(uint256 folderId, string calldata name, string calldata color, bool isActive) external folderExists(folderId) {
+        require(folderId != 0, "Root folder cannot be updated");
+        Folder storage folder = folders[folderId];
+        require(folder.owner == msg.sender, "Not folder owner");
+        require(bytes(name).length > 0, "Folder name required");
+
+        folder.name = name;
+        folder.color = color;
+        folder.isActive = isActive;
+
+        emit FolderUpdated(folderId, name, color, isActive);
+    }
+
+    function moveFileToFolder(uint256 fileId, uint256 folderId) external fileExists(fileId) onlyFileOwner(fileId) {
+        _requireOwnedFolder(folderId, msg.sender);
+
+        uint256 oldFolderId = files[fileId].folderId;
+        if (oldFolderId == folderId) return;
+
+        if (oldFolderId != 0 && folders[oldFolderId].fileCount > 0) {
+            folders[oldFolderId].fileCount--;
+        }
+        if (folderId != 0) {
+            folders[folderId].fileCount++;
+        }
+
+        files[fileId].folderId = folderId;
+        emit FileMoved(fileId, oldFolderId, folderId);
+    }
+
+    function registerWebhook(
+        bytes32 endpointHash,
+        string calldata label,
+        uint8 eventMask
+    ) external returns (uint256 webhookId) {
+        require(endpointHash != bytes32(0), "Endpoint hash required");
+        require(eventMask > 0, "Event mask required");
+
+        webhookId = ++totalWebhooks;
+        webhooks[webhookId] = Webhook({
+            id: webhookId,
+            owner: msg.sender,
+            endpointHash: endpointHash,
+            label: label,
+            eventMask: eventMask,
+            isActive: true,
+            createdAt: block.timestamp
+        });
+        userWebhooks[msg.sender].push(webhookId);
+
+        emit WebhookRegistered(webhookId, msg.sender, endpointHash, eventMask);
+    }
+
+    function updateWebhook(
+        uint256 webhookId,
+        bytes32 endpointHash,
+        string calldata label,
+        uint8 eventMask,
+        bool isActive
+    ) external {
+        Webhook storage hook = webhooks[webhookId];
+        require(hook.owner == msg.sender, "Not webhook owner");
+        require(endpointHash != bytes32(0), "Endpoint hash required");
+        require(eventMask > 0, "Event mask required");
+
+        hook.endpointHash = endpointHash;
+        hook.label = label;
+        hook.eventMask = eventMask;
+        hook.isActive = isActive;
+
+        emit WebhookUpdated(webhookId, endpointHash, eventMask, isActive);
+    }
+
     function getFileInfo(uint256 fileId) external view fileExists(fileId) returns (
         string memory ipfsHash,
         uint256 createdAt,
@@ -335,63 +409,93 @@ contract FhenixDropBox is Ownable, ReentrancyGuard {
         );
     }
 
-    /// @notice Get file expiry time
+    function getFileMetadata(uint256 fileId) external view fileExists(fileId) returns (
+        string memory fileName,
+        string memory mimeType,
+        uint256 fileSize,
+        uint256 expiresAt,
+        uint256 folderId,
+        bool previewEnabled,
+        string memory previewHash
+    ) {
+        File storage f = files[fileId];
+        return (f.fileName, f.mimeType, f.fileSize, f.expiresAt, f.folderId, f.previewEnabled, f.previewHash);
+    }
+
     function getFileExpiry(uint256 fileId) external view fileExists(fileId) returns (uint256) {
         return files[fileId].expiresAt;
     }
 
-    /// @notice Get access info for caller
     function getAccessInfo(uint256 fileId) external view fileExists(fileId) returns (
         bool isAuthorized,
         bool hasDownloaded
     ) {
         return (
-            authorizedUsers[fileId][msg.sender],
+            files[fileId].owner == msg.sender || authorizedUsers[fileId][msg.sender],
             downloadHistory[fileId][msg.sender]
         );
     }
 
-    /// @notice Get file owner
-    function getFileOwner(uint256 fileId) external view fileExists(fileId) returns (address) {
-        return files[fileId].owner;
-    }
-
-    /// @notice Get encryption info (only accessible to file owner or authorized user)
     function getEncryptionInfo(uint256 fileId) external view fileExists(fileId) returns (
         bool contentEncrypted,
         bool isOwnerOrAuthorized
     ) {
-        bool isAuthorized = authorizedUsers[fileId][msg.sender]
-            || files[fileId].owner == msg.sender;
-        return (
-            files[fileId].contentEncrypted,
-            isAuthorized
-        );
+        bool allowed = files[fileId].owner == msg.sender || authorizedUsers[fileId][msg.sender];
+        return (files[fileId].contentEncrypted, allowed);
     }
 
-    /// @notice Get files owned by caller
+    function getFileOwner(uint256 fileId) external view fileExists(fileId) returns (address) {
+        if (files[fileId].anonymousUpload) return address(0);
+        return files[fileId].owner;
+    }
+
+    function getFilePrivacy(uint256 fileId) external view fileExists(fileId) returns (
+        bool anonymousUpload,
+        address visibleOwner
+    ) {
+        File storage f = files[fileId];
+        return (f.anonymousUpload, f.anonymousUpload ? address(0) : f.owner);
+    }
+
     function getMyFiles() external view returns (uint256[] memory) {
         return userFiles[msg.sender];
     }
 
-    /// @notice Deactivate a file
+    function getMyFolders() external view returns (uint256[] memory) {
+        return userFolders[msg.sender];
+    }
+
+    function getMyWebhooks() external view returns (uint256[] memory) {
+        return userWebhooks[msg.sender];
+    }
+
+    function getFilesByFolder(uint256 folderId) external view returns (uint256[] memory fileIds) {
+        uint256[] storage mine = userFiles[msg.sender];
+        uint256 count;
+
+        for (uint256 i = 0; i < mine.length; i++) {
+            if (files[mine[i]].folderId == folderId) count++;
+        }
+
+        fileIds = new uint256[](count);
+        uint256 cursor;
+        for (uint256 i = 0; i < mine.length; i++) {
+            if (files[mine[i]].folderId == folderId) {
+                fileIds[cursor++] = mine[i];
+            }
+        }
+    }
+
     function deactivateFile(uint256 fileId) external onlyFileOwner(fileId) {
         files[fileId].isActive = false;
         emit FileDeactivated(fileId);
     }
 
-    /// @notice Reactivate a file
     function reactivateFile(uint256 fileId) external onlyFileOwner(fileId) {
         files[fileId].isActive = true;
         emit FileReactivated(fileId);
     }
 
-    /// @notice Update file access rules
-    /// @param fileId The file to update
-    /// @param newPrice New price in USDC
-    /// @param newMaxDownloads New max downloads (0 = unlimited)
-    /// @param newExpiryDays New expiry in days
-    /// @param newAccessCodeHash New access code hash (0 = no change)
     function updateFileRules(
         uint256 fileId,
         uint256 newPrice,
@@ -399,75 +503,98 @@ contract FhenixDropBox is Ownable, ReentrancyGuard {
         uint256 newExpiryDays,
         bytes32 newAccessCodeHash
     ) external onlyFileOwner(fileId) {
+        require(newPrice <= MAX_PRICE, "Price too high");
+
         File storage file = files[fileId];
         file.price = newPrice;
         file.maxDownloads = newMaxDownloads;
-        if (newExpiryDays > 0) {
-            file.expiresAt = block.timestamp + (newExpiryDays * 1 days);
-        }
-        if (newAccessCodeHash != bytes32(0)) {
-            file.accessCodeHash = newAccessCodeHash;
-            file.hasPassword = true;
-        }
+        file.expiresAt = newExpiryDays > 0 ? block.timestamp + (newExpiryDays * 1 days) : 0;
+        file.accessCodeHash = newAccessCodeHash;
+        file.hasPassword = newAccessCodeHash != bytes32(0);
+
+        emit FileRulesUpdated(fileId, newPrice, newMaxDownloads, file.expiresAt, file.hasPassword);
     }
 
-    /// @notice Get platform statistics
+    function updateFileMetadata(
+        uint256 fileId,
+        string calldata fileName,
+        string calldata mimeType,
+        uint256 fileSize,
+        bool previewEnabled,
+        string calldata previewHash
+    ) external onlyFileOwner(fileId) {
+        File storage file = files[fileId];
+        file.fileName = fileName;
+        file.mimeType = mimeType;
+        file.fileSize = fileSize;
+        file.previewEnabled = previewEnabled && bytes(previewHash).length > 0;
+        file.previewHash = previewHash;
+
+        emit FileMetadataUpdated(fileId, fileName, mimeType, file.folderId, previewHash);
+    }
+
+    function updateFilePrivacy(uint256 fileId, bool anonymousUpload) external onlyFileOwner(fileId) {
+        files[fileId].anonymousUpload = anonymousUpload;
+        emit FilePrivacyUpdated(fileId, anonymousUpload);
+    }
+
+    function revokeAccess(uint256 fileId, address user) external onlyFileOwner(fileId) {
+        authorizedUsers[fileId][user] = false;
+        emit AccessRevoked(fileId, user);
+    }
+
     function getStats() external view returns (
         uint256 _totalFiles,
         uint256 _totalDownloads,
         uint256 _totalVolume,
         uint256 _myFileCount
     ) {
-        return (
-            totalFiles,
-            totalDownloads,
-            totalVolume,
-            userFiles[msg.sender].length
-        );
+        return (totalFiles, totalDownloads, totalVolume, userFiles[msg.sender].length);
     }
 
-    /// @notice Revoke user access
-    function revokeAccess(uint256 fileId, address user) external onlyFileOwner(fileId) {
-        authorizedUsers[fileId][user] = false;
-        emit AccessRevoked(fileId, user);
-    }
-
-    // ─── Owner Functions ──────────────────────────────────────────────────────
-
-    /// @notice Withdraw contract balance
-    function withdraw() external onlyOwner {
-        payable(owner()).transfer(address(this).balance);
-    }
-
-    /// @notice Withdraw ERC20 tokens
-    function withdrawERC20(address token) external onlyOwner {
-        uint256 balance = IERC20(token).balanceOf(address(this));
-        require(IERC20(token).transfer(owner(), balance), "Transfer failed");
-    }
-
-    /// @notice Get remaining downloads for a file
-    function getRemainingDownloads(uint256 fileId) external view fileExists(fileId) returns (uint256) {
+    function getRemainingDownloads(uint256 fileId) public view fileExists(fileId) returns (uint256) {
         File storage f = files[fileId];
         if (f.maxDownloads == 0) return type(uint256).max;
         if (f.downloadCount >= f.maxDownloads) return 0;
         return f.maxDownloads - f.downloadCount;
     }
 
-    /// @notice Check if file is expired
-    function isFileExpired(uint256 fileId) external view fileExists(fileId) returns (bool) {
+    function isFileExpired(uint256 fileId) public view fileExists(fileId) returns (bool) {
         uint256 exp = files[fileId].expiresAt;
         return exp > 0 && block.timestamp >= exp;
     }
 
-    /// @notice Get contract balance
+    function getLatestFileId() external view returns (uint256) {
+        uint256[] storage myFileIds = userFiles[msg.sender];
+        require(myFileIds.length > 0, "No files found");
+        return myFileIds[myFileIds.length - 1];
+    }
+
     function getBalance() external view returns (uint256) {
         return address(this).balance;
     }
 
-    /// @notice Get the latest file ID for the caller (for share link creation)
-    function getLatestFileId() external view returns (uint256) {
-        uint256[] memory myFileIds = userFiles[msg.sender];
-        require(myFileIds.length > 0, "No files found");
-        return myFileIds[myFileIds.length - 1];
+    function withdraw() external onlyOwner {
+        payable(owner()).transfer(address(this).balance);
+    }
+
+    function withdrawERC20(address token) external onlyOwner {
+        uint256 balance = IERC20(token).balanceOf(address(this));
+        require(IERC20(token).transfer(owner(), balance), "Transfer failed");
+    }
+
+    function _requireAvailable(uint256 fileId) internal view {
+        File storage file = files[fileId];
+        require(file.isActive, "File is not active");
+        require(!isFileExpired(fileId), "File has expired");
+        if (file.maxDownloads > 0) {
+            require(file.downloadCount < file.maxDownloads, "No downloads remaining");
+        }
+    }
+
+    function _requireOwnedFolder(uint256 folderId, address owner_) internal view {
+        if (folderId == 0) return;
+        require(folders[folderId].owner == owner_, "Invalid folder");
+        require(folders[folderId].isActive, "Folder inactive");
     }
 }

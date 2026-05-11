@@ -1,285 +1,207 @@
 /**
- * Fhenix Integration Utilities
+ * FhenixDropBox contract utilities.
  *
- * Utilities for interacting with FhenixDropBox smart contract on Sepolia.
+ * The ABI is loaded from the compiled Hardhat artifact so the frontend stays
+ * aligned with every contract compile/deploy.
  */
 
-import { sepolia, arbitrumSepolia } from 'wagmi/chains'
+import { arbitrumSepolia, baseSepolia, sepolia } from 'wagmi/chains'
+import { formatEther, keccak256, parseEther, type Abi } from 'viem'
+import FhenixDropBoxArtifact from '@/artifacts/contracts/FhenixDropBox.sol/FhenixDropBox.json'
 
-// Contract address
-export const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '0x820D442CC6BB930307183926C7805212668C7Cff'
+export const CONTRACT_ADDRESS =
+  process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '0x4B41c506a718774b15aDd13703B61B4C7282f221'
 
-// Supported chains
-export const SUPPORTED_CHAINS = [sepolia, arbitrumSepolia]
+export const SUPPORTED_CHAINS = [sepolia, arbitrumSepolia, baseSepolia]
+export const FHENIX_DROPBOX_ABI = FhenixDropBoxArtifact.abi as Abi
 
-// Contract ABI
-export const FHENIX_DROPBOX_ABI = [
-  {
-    name: "uploadFile",
-    type: "function",
-    inputs: [
-      { name: "ipfsHash_", type: "string" },
-      { name: "price_", type: "uint256" },
-      { name: "maxDownloads_", type: "uint256" },
-      { name: "expiryDays_", type: "uint256" },
-      { name: "accessCodeHash_", type: "bytes32" },
-      { name: "contentEncrypted_", type: "bool" },
-      { name: "encryptionKeyHash_", type: "bytes32" }
-    ],
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "nonpayable"
-  },
-  {
-    name: "requestAccess",
-    type: "function",
-    inputs: [
-      { name: "fileId", type: "uint256" },
-      { name: "accessCode_", type: "bytes32" }
-    ],
-    outputs: [],
-    stateMutability: "payable"
-  },
-  {
-    name: "requestAccessERC20",
-    type: "function",
-    inputs: [
-      { name: "fileId", type: "uint256" },
-      { name: "accessCode_", type: "bytes32" },
-      { name: "amount_", type: "uint256" }
-    ],
-    outputs: [],
-    stateMutability: "nonpayable"
-  },
-  {
-    name: "downloadFile",
-    type: "function",
-    inputs: [{ name: "fileId", type: "uint256" }],
-    outputs: [],
-    stateMutability: "nonpayable"
-  },
-  {
-    name: "getFileInfo",
-    type: "function",
-    inputs: [{ name: "fileId", type: "uint256" }],
-    outputs: [
-      { name: "ipfsHash", type: "string" },
-      { name: "createdAt", type: "uint256" },
-      { name: "price", type: "uint256" },
-      { name: "maxDownloads", type: "uint256" },
-      { name: "downloadCount", type: "uint256" },
-      { name: "isActive", type: "bool" },
-      { name: "hasPassword", type: "bool" },
-      { name: "contentEncrypted", type: "bool" }
-    ],
-    stateMutability: "view"
-  },
-  {
-    name: "getFileExpiry",
-    type: "function",
-    inputs: [{ name: "fileId", type: "uint256" }],
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view"
-  },
-  {
-    name: "getAccessInfo",
-    type: "function",
-    inputs: [{ name: "fileId", type: "uint256" }],
-    outputs: [
-      { name: "isAuthorized", type: "bool" },
-      { name: "hasDownloaded", type: "bool" }
-    ],
-    stateMutability: "view"
-  },
-  {
-    name: "getFileOwner",
-    type: "function",
-    inputs: [{ name: "fileId", type: "uint256" }],
-    outputs: [{ name: "", type: "address" }],
-    stateMutability: "view"
-  },
-  {
-    name: "getEncryptionInfo",
-    type: "function",
-    inputs: [{ name: "fileId", type: "uint256" }],
-    outputs: [
-      { name: "contentEncrypted", type: "bool" },
-      { name: "isOwnerOrAuthorized", type: "bool" }
-    ],
-    stateMutability: "view"
-  },
-  {
-    name: "getMyFiles",
-    type: "function",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256[]" }],
-    stateMutability: "view"
-  },
-  {
-    name: "getStats",
-    type: "function",
-    inputs: [],
-    outputs: [
-      { name: "_totalFiles", type: "uint256" },
-      { name: "_totalDownloads", type: "uint256" },
-      { name: "_totalVolume", type: "uint256" },
-      { name: "_myFileCount", type: "uint256" }
-    ],
-    stateMutability: "view"
-  },
-  {
-    name: "getRemainingDownloads",
-    type: "function",
-    inputs: [{ name: "fileId", type: "uint256" }],
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view"
-  },
-  {
-    name: "isFileExpired",
-    type: "function",
-    inputs: [{ name: "fileId", type: "uint256" }],
-    outputs: [{ name: "", type: "bool" }],
-    stateMutability: "view"
-  },
-  {
-    name: "getLatestFileId",
-    type: "function",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view"
-  },
-  {
-    name: "deactivateFile",
-    type: "function",
-    inputs: [{ name: "fileId", type: "uint256" }],
-    outputs: [],
-    stateMutability: "nonpayable"
-  },
-  {
-    name: "reactivateFile",
-    type: "function",
-    inputs: [{ name: "fileId", type: "uint256" }],
-    outputs: [],
-    stateMutability: "nonpayable"
-  },
-  {
-    name: "updateFileRules",
-    type: "function",
-    inputs: [
-      { name: "fileId", type: "uint256" },
-      { name: "newPrice", type: "uint256" },
-      { name: "newMaxDownloads", type: "uint256" },
-      { name: "newExpiryDays", type: "uint256" },
-      { name: "newAccessCodeHash", type: "bytes32" }
-    ],
-    outputs: [],
-    stateMutability: "nonpayable"
-  },
-  {
-    name: "revokeAccess",
-    type: "function",
-    inputs: [
-      { name: "fileId", type: "uint256" },
-      { name: "user", type: "address" }
-    ],
-    outputs: [],
-    stateMutability: "nonpayable"
-  },
-  {
-    name: "withdraw",
-    type: "function",
-    inputs: [],
-    outputs: [],
-    stateMutability: "nonpayable"
-  },
-  {
-    name: "totalFiles",
-    type: "function",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view"
-  },
-  {
-    name: "totalDownloads",
-    type: "function",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view"
-  }
-] as const
+export const ZERO_BYTES32 =
+  '0x0000000000000000000000000000000000000000000000000000000000000000' as const
 
-// ─── Utility Functions ────────────────────────────────────────────────────────
+export interface FileInfo {
+  ipfsHash: string
+  createdAt: bigint
+  price: bigint
+  maxDownloads: bigint
+  downloadCount: bigint
+  isActive: boolean
+  hasPassword: boolean
+  contentEncrypted: boolean
+}
 
-export const ZERO_BYTES32 = "0x0000000000000000000000000000000000000000000000000000000000000000" as const
+export interface FileMetadata {
+  fileName: string
+  mimeType: string
+  fileSize: bigint
+  expiresAt: bigint
+  folderId: bigint
+  previewEnabled: boolean
+  previewHash: string
+}
 
-/**
- * Hash password for storage
- */
+export interface FolderInfo {
+  id: bigint
+  owner: `0x${string}`
+  name: string
+  color: string
+  createdAt: bigint
+  fileCount: bigint
+  isActive: boolean
+}
+
+export interface WebhookInfo {
+  id: bigint
+  owner: `0x${string}`
+  endpointHash: `0x${string}`
+  label: string
+  eventMask: number
+  isActive: boolean
+  createdAt: bigint
+}
+
+export interface FilePrivacy {
+  anonymousUpload: boolean
+  visibleOwner: `0x${string}`
+}
+
+export type UploadInput = {
+  ipfsHash: string
+  fileName: string
+  mimeType: string
+  fileSize: bigint
+  price: bigint
+  maxDownloads: bigint
+  expiryDays: bigint
+  accessCodeHash: `0x${string}`
+  contentEncrypted: boolean
+  encryptionKeyHash: `0x${string}`
+  folderId: bigint
+  previewEnabled: boolean
+  previewHash: string
+  anonymousUpload: boolean
+}
+
 export function hashPassword(password: string): `0x${string}` {
   if (!password) return ZERO_BYTES32
-  const { keccak256 } = require('viem')
-  return keccak256(new TextEncoder().encode(password)) as `0x${string}`
+  return keccak256(new TextEncoder().encode(password))
 }
 
-/**
- * Format USDC value for display
- */
-export function formatUSDC(value: bigint | number): string {
-  const num = typeof value === 'bigint' ? Number(value) : value
-  return (num / 1000000).toFixed(2)
+export function hashWebhookEndpoint(endpoint: string): `0x${string}` {
+  return hashPassword(endpoint.trim())
 }
 
-/**
- * Parse USDC input to wei
- */
-export function parseUSDC(value: string): bigint {
-  const num = parseFloat(value)
-  return BigInt(Math.floor(num * 1000000))
+export function parseNativePrice(value: string): bigint {
+  const trimmed = value.trim()
+  if (!trimmed) return 0n
+  return parseEther(trimmed)
 }
 
-/**
- * Check if a file has expired
- */
-export function isExpired(expiresAt: number): boolean {
-  return expiresAt > 0 && Date.now() / 1000 > expiresAt
-}
-
-/**
- * Get remaining downloads
- */
-export function getRemainingDownloads(maxDownloads: number, downloadCount: number): number {
-  if (maxDownloads === 0) return Infinity
-  return Math.max(0, maxDownloads - downloadCount)
-}
-
-/**
- * Format timestamp to readable date
- */
-export function formatDate(timestamp: number): string {
-  return new Date(timestamp * 1000).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
+export function formatNativePrice(value: bigint | number): string {
+  const wei = typeof value === 'bigint' ? value : BigInt(value)
+  return Number(formatEther(wei)).toLocaleString('en-US', {
+    maximumFractionDigits: 6,
   })
 }
 
-/**
- * Get file type from filename
- */
-export function getFileType(filename: string): string {
-  const ext = filename.split('.').pop()?.toLowerCase() || ''
-  return ext
+// Backward-compatible aliases for older components.
+export const parseUSDC = parseNativePrice
+export const formatUSDC = formatNativePrice
+
+export function tupleToFileInfo(data: unknown): FileInfo | undefined {
+  if (!Array.isArray(data)) return undefined
+  return {
+    ipfsHash: data[0] || '',
+    createdAt: data[1] || 0n,
+    price: data[2] || 0n,
+    maxDownloads: data[3] || 0n,
+    downloadCount: data[4] || 0n,
+    isActive: data[5] || false,
+    hasPassword: data[6] || false,
+    contentEncrypted: data[7] || false,
+  }
 }
 
-// ─── Constants ───────────────────────────────────────────────────────────────
+export function tupleToFileMetadata(data: unknown): FileMetadata | undefined {
+  if (!Array.isArray(data)) return undefined
+  return {
+    fileName: data[0] || '',
+    mimeType: data[1] || '',
+    fileSize: data[2] || 0n,
+    expiresAt: data[3] || 0n,
+    folderId: data[4] || 0n,
+    previewEnabled: data[5] || false,
+    previewHash: data[6] || '',
+  }
+}
+
+export function tupleToFolderInfo(data: unknown): FolderInfo | undefined {
+  if (!Array.isArray(data)) return undefined
+  return {
+    id: data[0] || 0n,
+    owner: data[1],
+    name: data[2] || '',
+    color: data[3] || '',
+    createdAt: data[4] || 0n,
+    fileCount: data[5] || 0n,
+    isActive: data[6] || false,
+  }
+}
+
+export function tupleToWebhookInfo(data: unknown): WebhookInfo | undefined {
+  if (!Array.isArray(data)) return undefined
+  return {
+    id: data[0] || 0n,
+    owner: data[1],
+    endpointHash: data[2],
+    label: data[3] || '',
+    eventMask: Number(data[4] || 0),
+    isActive: data[5] || false,
+    createdAt: data[6] || 0n,
+  }
+}
+
+export function tupleToFilePrivacy(data: unknown): FilePrivacy | undefined {
+  if (!Array.isArray(data)) return undefined
+  return {
+    anonymousUpload: data[0] || false,
+    visibleOwner: data[1],
+  }
+}
+
+export function isExpired(expiresAt: bigint | number): boolean {
+  const exp = typeof expiresAt === 'bigint' ? Number(expiresAt) : expiresAt
+  return exp > 0 && Date.now() / 1000 > exp
+}
+
+export function getRemainingDownloads(maxDownloads: bigint | number, downloadCount: bigint | number): number {
+  const max = Number(maxDownloads)
+  const count = Number(downloadCount)
+  if (max === 0) return Infinity
+  return Math.max(0, max - count)
+}
+
+export function formatDate(timestamp: bigint | number): string {
+  const seconds = typeof timestamp === 'bigint' ? Number(timestamp) : timestamp
+  if (!seconds) return 'Never'
+  return new Date(seconds * 1000).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
+export function getFileType(filename: string): string {
+  return filename.split('.').pop()?.toLowerCase() || ''
+}
 
 export const RPC_URLS = {
   sepolia: 'https://ethereum-sepolia.publicnode.com',
   arbitrumSepolia: 'https://sepolia-rollup.arbitrum.io/rpc',
-  baseSepolia: 'https://sepolia.base.org'
+  baseSepolia: 'https://sepolia.base.org',
 } as const
 
 export const BLOCK_EXPLORERS = {
   sepolia: 'https://sepolia.etherscan.io',
   arbitrumSepolia: 'https://sepolia.arbiscan.io',
-  baseSepolia: 'https://sepolia.basescan.org'
+  baseSepolia: 'https://sepolia.basescan.org',
 } as const

@@ -1,528 +1,508 @@
 "use client"
 
-import { useState, useEffect, use } from "react"
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi"
-import {
-  Shield, Lock, Key, Eye, Download, DollarSign, CheckCircle2,
-  AlertCircle, Loader2, FileText, Wallet, ArrowLeft, Zap, XCircle, Copy, CheckCircle
-} from "lucide-react"
+import { use, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { FHENIX_DROPBOX_ABI, CONTRACT_ADDRESS, hashPassword } from "@/lib/fhenix"
-import { downloadFromIPFS, getFromIPFS, formatFileSize } from "@/lib/ipfs"
+import { useAccount, useConnect, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { sepolia } from "wagmi/chains"
-
-interface FileInfo {
-  ipfsHash: string
-  createdAt: bigint
-  price: bigint
-  maxDownloads: bigint
-  downloadCount: bigint
-  isActive: boolean
-  hasPassword: boolean
-  contentEncrypted: boolean
-}
-
-// Helper to safely access tuple data
-function getFileInfoData(data: any): FileInfo | undefined {
-  if (!data) return undefined
-  // data is a tuple returned from contract
-  if (Array.isArray(data)) {
-    return {
-      ipfsHash: data[0] || '',
-      createdAt: data[1] || BigInt(0),
-      price: data[2] || BigInt(0),
-      maxDownloads: data[3] || BigInt(0),
-      downloadCount: data[4] || BigInt(0),
-      isActive: data[5] || false,
-      hasPassword: data[6] || false,
-      contentEncrypted: data[7] || false
-    }
-  }
-  return data as FileInfo
-}
+import {
+  AlertCircle,
+  ArrowLeft,
+  CheckCircle,
+  CheckCircle2,
+  Copy,
+  DollarSign,
+  Download,
+  Eye,
+  EyeOff,
+  FileText,
+  Key,
+  Loader2,
+  Lock,
+  Shield,
+  Wallet,
+  XCircle,
+} from "lucide-react"
+import {
+  CONTRACT_ADDRESS,
+  FHENIX_DROPBOX_ABI,
+  ZERO_BYTES32,
+  formatDate,
+  formatNativePrice,
+  getRemainingDownloads,
+  hashPassword,
+  isExpired,
+  tupleToFileInfo,
+  tupleToFileMetadata,
+  tupleToFilePrivacy,
+  type FilePrivacy,
+  type FileInfo,
+  type FileMetadata,
+} from "@/lib/fhenix"
+import { decryptFile, formatFileSize, getFromIPFS, getIPFSUrl } from "@/lib/ipfs"
+import { parseShareSecret, type ShareSecret } from "@/lib/share-links"
 
 interface AccessInfo {
   isAuthorized: boolean
   hasDownloaded: boolean
 }
 
-interface EncryptionInfo {
-  contentEncrypted: boolean
-  isOwnerOrAuthorized: boolean
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  document.body.removeChild(anchor)
+  URL.revokeObjectURL(url)
 }
 
-function ShareContent({ fileId, shareHash }: { fileId: number; shareHash: string }) {
+function PreviewPanel({ metadata }: { metadata?: FileMetadata }) {
+  if (!metadata?.previewEnabled || !metadata.previewHash) {
+    return (
+      <div className="flex h-64 flex-col items-center justify-center bg-gradient-to-br from-[#f5f4f0] to-[#e8e6e0] text-center">
+        <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-2xl border border-black/[0.08] bg-white shadow-sm">
+          <FileText className="h-10 w-10 text-black/35" />
+        </div>
+        <div className="text-sm font-medium text-black/65">No public preview</div>
+        <div className="mt-1 text-xs text-black/40">Access is required before downloading.</div>
+      </div>
+    )
+  }
+
+  const previewUrl = getIPFSUrl(metadata.previewHash)
+  const isImage = metadata.mimeType.startsWith("image/")
+  const isPdf = metadata.mimeType === "application/pdf"
+
+  return (
+    <div className="bg-black/[0.03]">
+      {isImage ? (
+        <img src={previewUrl} alt={metadata.fileName || "File preview"} className="h-80 w-full object-contain" />
+      ) : isPdf ? (
+        <iframe title="PDF preview" src={previewUrl} className="h-96 w-full border-0" />
+      ) : (
+        <div className="flex h-64 items-center justify-center text-sm text-black/45">Preview available after access.</div>
+      )}
+    </div>
+  )
+}
+
+function ShareContent({ fileId }: { fileId: number }) {
   const { address, isConnected } = useAccount()
+  const { connect, connectors, isPending: isConnecting } = useConnect()
+  const [mounted, setMounted] = useState(false)
   const [accessCode, setAccessCode] = useState("")
   const [showAccessCode, setShowAccessCode] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [downloading, setDownloading] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
-  const [mounted, setMounted] = useState(false)
+  const [shareSecret, setShareSecret] = useState<ShareSecret>({})
+  const [anonymousHint, setAnonymousHint] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     setMounted(true)
+    setShareSecret(parseShareSecret(window.location.hash))
+    setAnonymousHint(new URLSearchParams(window.location.search).get("anon") === "1")
   }, [])
 
-  // Read file info from contract
-  const { data: rawFileInfo, isLoading: fileLoading } = useReadContract({
+  const { data: rawFileInfo, isLoading: fileLoading, isError: fileError } = useReadContract({
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
-    functionName: 'getFileInfo',
+    functionName: "getFileInfo",
     args: [BigInt(fileId)],
-    query: { enabled: mounted && fileId > 0 }
+    query: { enabled: mounted && fileId >= 0 },
   })
 
-  const fileInfo = getFileInfoData(rawFileInfo)
-
-  // Read access info
-  const { data: accessInfo } = useReadContract({
+  const { data: rawMetadata } = useReadContract({
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
-    functionName: 'getAccessInfo',
+    functionName: "getFileMetadata",
     args: [BigInt(fileId)],
-    query: { enabled: mounted && !!address && fileId > 0 }
-  }) as { data: AccessInfo | undefined }
+    query: { enabled: mounted && fileId >= 0 },
+  })
 
-  // Read file owner
+  const { data: accessInfo, refetch: refetchAccess } = useReadContract({
+    address: CONTRACT_ADDRESS as `0x${string}`,
+    abi: FHENIX_DROPBOX_ABI,
+    functionName: "getAccessInfo",
+    args: [BigInt(fileId)],
+    query: { enabled: mounted && !!address && fileId >= 0 },
+  }) as { data: AccessInfo | undefined; refetch: () => Promise<unknown> }
+
   const { data: fileOwner } = useReadContract({
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
-    functionName: 'getFileOwner',
+    functionName: "getFileOwner",
     args: [BigInt(fileId)],
-    query: { enabled: mounted && fileId > 0 }
+    query: { enabled: mounted && fileId >= 0 },
   }) as { data: `0x${string}` | undefined }
 
-  // Request access write
-  const { writeContract, data: accessTxHash, isPending: isRequestingAccess } = useWriteContract()
-
-  // Wait for access transaction
-  const { isLoading: isWaitingAccess, isSuccess: accessSuccess } = useWaitForTransactionReceipt({
-    hash: accessTxHash,
+  const { data: rawPrivacy } = useReadContract({
+    address: CONTRACT_ADDRESS as `0x${string}`,
+    abi: FHENIX_DROPBOX_ABI,
+    functionName: "getFilePrivacy",
+    args: [BigInt(fileId)],
+    query: { enabled: mounted && fileId >= 0 },
   })
 
-  // Download file write
-  const { writeContract: downloadFile, data: downloadTxHash, isPending: isDownloadingTx } = useWriteContract()
+  const { writeContract: requestAccess, data: accessTxHash, isPending: isRequestingAccess } = useWriteContract()
+  const { isLoading: isWaitingAccess, isSuccess: accessSuccess } = useWaitForTransactionReceipt({ hash: accessTxHash })
 
-  // Wait for download transaction
-  const { isLoading: isWaitingDownload, isSuccess: downloadSuccess } = useWaitForTransactionReceipt({
-    hash: downloadTxHash,
-  })
+  const { writeContract: recordDownload, data: downloadTxHash, isPending: isDownloadingTx } = useWriteContract()
+  const { isLoading: isWaitingDownload, isSuccess: downloadSuccess } = useWaitForTransactionReceipt({ hash: downloadTxHash })
 
-  // ─── Handlers ──────────────────────────────────────────────────────────────
+  const fileInfo = useMemo<FileInfo | undefined>(() => tupleToFileInfo(rawFileInfo), [rawFileInfo])
+  const metadata = useMemo<FileMetadata | undefined>(() => tupleToFileMetadata(rawMetadata), [rawMetadata])
+  const filePrivacy = useMemo<FilePrivacy | undefined>(() => tupleToFilePrivacy(rawPrivacy), [rawPrivacy])
 
-  const handleRequestAccess = async () => {
-    if (!fileInfo) return
+  const fileName = shareSecret.name || metadata?.fileName || `file_${fileId}`
+  const mimeType = shareSecret.type || metadata?.mimeType || "application/octet-stream"
+  const remainingDownloads = fileInfo ? getRemainingDownloads(fileInfo.maxDownloads, fileInfo.downloadCount) : 0
+  const isOwner = !!fileOwner && !!address && fileOwner.toLowerCase() === address.toLowerCase()
+  const alreadyAuthorized = isOwner || (accessInfo?.isAuthorized ?? false)
+  const alreadyDownloaded = accessInfo?.hasDownloaded ?? false
+  const expired = metadata ? isExpired(metadata.expiresAt) : false
+  const canRequestAccess = !!fileInfo && !alreadyAuthorized && !expired
+  const canDownload = alreadyAuthorized && !alreadyDownloaded && !expired
+  const hasSecret = !fileInfo?.contentEncrypted || (!!shareSecret.key && !!shareSecret.iv)
+  const isAnonymousShare = filePrivacy?.anonymousUpload || shareSecret.anonymous || anonymousHint
 
-    setError(null)
-    setDownloading(true)
-
-    try {
-      // Hash the access code using same method as upload
-      const accessCodeHash = accessCode
-        ? hashPassword(accessCode) as `0x${string}`
-        : '0x0000000000000000000000000000000000000000000000000000000000000000' as const
-
-      // If file has a price, pay for access
-      if (fileInfo.price > 0n) {
-        writeContract({
-          address: CONTRACT_ADDRESS as `0x${string}`,
-          abi: FHENIX_DROPBOX_ABI,
-          functionName: 'requestAccess',
-          args: [BigInt(fileId), accessCodeHash],
-          value: fileInfo.price,
-          chainId: sepolia.id,
-        })
-      } else {
-        // Free access - just verify code
-        writeContract({
-          address: CONTRACT_ADDRESS as `0x${string}`,
-          abi: FHENIX_DROPBOX_ABI,
-          functionName: 'requestAccess',
-          args: [BigInt(fileId), accessCodeHash],
-          chainId: sepolia.id,
-        })
-      }
-    } catch (err: any) {
-      setError(err.shortMessage || err.message || "Failed to request access")
-      setDownloading(false)
-    }
-  }
-
-  const handleDownload = async () => {
-    if (!fileInfo?.ipfsHash) return
-
-    setDownloading(true)
-    setError(null)
-
-    try {
-      // Call on-chain downloadFile to record the download
-      downloadFile({
-        address: CONTRACT_ADDRESS as `0x${string}`,
-        abi: FHENIX_DROPBOX_ABI,
-        functionName: 'downloadFile',
-        args: [BigInt(fileId)],
-        chainId: sepolia.id,
-      })
-    } catch (err: any) {
-      setError(err.shortMessage || err.message || "Failed to download")
-      setDownloading(false)
-    }
-  }
-
-  // Handle download success - fetch from IPFS
-  useEffect(() => {
-    if (downloadSuccess && fileInfo?.ipfsHash && !downloaded) {
-      // Fetch file from IPFS and trigger download
-      downloadFromIPFS(fileInfo.ipfsHash, `file_${fileId}`)
-        .then(() => {
-          setDownloaded(true)
-          setDownloading(false)
-        })
-        .catch((err) => {
-          console.error('IPFS download error:', err)
-          // Show success anyway since on-chain record is made
-          setDownloaded(true)
-          setDownloading(false)
-        })
-    }
-  }, [downloadSuccess, fileInfo])
-
-  // Handle access success
   useEffect(() => {
     if (accessSuccess) {
-      setDownloading(false)
+      setError(null)
+      void refetchAccess()
     }
-  }, [accessSuccess])
+  }, [accessSuccess, refetchAccess])
 
-  // ─── Computed ───────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!downloadSuccess || !fileInfo?.ipfsHash || downloaded) return
+    const currentFile = fileInfo
 
-  const priceUSDC = fileInfo?.price ? Number(fileInfo.price) / 1e6 : 0
-  const hasPrice = priceUSDC > 0
-  const needsAccessCode = fileInfo?.hasPassword ?? false
-  const remainingDownloads = fileInfo?.maxDownloads
-    ? Number(fileInfo.maxDownloads) - Number(fileInfo.downloadCount)
-    : Infinity
-  const isOwner = fileOwner?.toLowerCase() === address?.toLowerCase()
+    async function fetchAndDownload() {
+      try {
+        const blob = await getFromIPFS(currentFile.ipfsHash)
 
-  // ─── Render ─────────────────────────────────────────────────────────────────
+        if (currentFile.contentEncrypted) {
+          if (!shareSecret.key || !shareSecret.iv) {
+            throw new Error("This encrypted file needs the full secret link with key and IV.")
+          }
+          const decrypted = await decryptFile(await blob.arrayBuffer(), shareSecret.key, shareSecret.iv)
+          downloadBlob(new Blob([decrypted], { type: mimeType }), fileName)
+        } else {
+          downloadBlob(blob, fileName)
+        }
+
+        setDownloaded(true)
+        setError(null)
+        void refetchAccess()
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Download failed")
+      } finally {
+        setDownloading(false)
+      }
+    }
+
+    void fetchAndDownload()
+  }, [downloadSuccess, downloaded, fileInfo, fileName, mimeType, refetchAccess, shareSecret.iv, shareSecret.key])
+
+  const handleRequestAccess = () => {
+    if (!fileInfo || !isConnected) return
+
+    setError(null)
+    const accessCodeHash = accessCode ? hashPassword(accessCode) : ZERO_BYTES32
+
+    requestAccess({
+      address: CONTRACT_ADDRESS as `0x${string}`,
+      abi: FHENIX_DROPBOX_ABI,
+      functionName: "requestAccess",
+      args: [BigInt(fileId), accessCodeHash],
+      value: fileInfo.price,
+      chainId: sepolia.id,
+    })
+  }
+
+  const handleDownload = () => {
+    if (!fileInfo?.ipfsHash) return
+    if (!hasSecret) {
+      setError("Missing decryption key. Ask the sender for the full secret link.")
+      return
+    }
+
+    setDownloading(true)
+    setError(null)
+    recordDownload({
+      address: CONTRACT_ADDRESS as `0x${string}`,
+      abi: FHENIX_DROPBOX_ABI,
+      functionName: "downloadFile",
+      args: [BigInt(fileId)],
+      chainId: sepolia.id,
+    })
+  }
+
+  const copyCurrentLink = async () => {
+    await navigator.clipboard.writeText(window.location.href)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1600)
+  }
 
   if (!mounted) {
     return (
-      <div className="min-h-screen bg-[#F5F4F0] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-black/30" />
+      <div className="flex min-h-screen items-center justify-center bg-[#F5F4F0]">
+        <Loader2 className="h-8 w-8 animate-spin text-black/30" />
       </div>
     )
   }
 
-  // File not found
-  if (!fileLoading && !fileInfo && fileId > 0) {
+  if ((!fileLoading && !fileInfo && fileId >= 0) || fileError) {
     return (
       <div className="min-h-screen bg-[#F5F4F0]">
-        <header className="fixed top-0 inset-x-0 z-50 bg-white/80 backdrop-blur-xl border-b border-black/[0.08]">
-          <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-2">
-              <Shield className="w-6 h-6 text-[#111]" />
-              <span className="font-medium text-sm">FhenixDropBox</span>
-            </Link>
-            <Link href="/" className="text-xs text-black/50 hover:text-black transition-colors">
-              Back to Home
-            </Link>
-          </div>
-        </header>
-        <div className="pt-32 text-center">
-          <XCircle className="w-16 h-16 text-black/20 mx-auto mb-4" />
-          <h1 className="text-xl font-medium mb-2">File Not Found</h1>
+        <ShareHeader />
+        <main className="px-6 pt-32 text-center">
+          <XCircle className="mx-auto mb-4 h-16 w-16 text-black/20" />
+          <h1 className="mb-2 text-xl font-medium">File Not Found</h1>
           <p className="text-sm text-black/50">This file may have been removed or the link is invalid.</p>
-        </div>
+        </main>
       </div>
     )
   }
-
-  const alreadyAuthorized = accessInfo?.isAuthorized ?? false
-  const alreadyDownloaded = accessInfo?.hasDownloaded ?? false
-  const canDownload = alreadyAuthorized && !alreadyDownloaded
-  const canRequestAccess = !alreadyAuthorized
 
   return (
     <div className="min-h-screen bg-[#F5F4F0]">
-      {/* Header */}
-      <header className="fixed top-0 inset-x-0 z-50 bg-white/80 backdrop-blur-xl border-b border-black/[0.08]">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <Shield className="w-6 h-6 text-[#111]" />
-            <span className="font-medium text-sm">FhenixDropBox</span>
-          </Link>
-          <Link href="/dashboard" className="text-xs text-black/50 hover:text-black transition-colors">
-            Dashboard
-          </Link>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="pt-24 pb-16 px-6">
-        <div className="max-w-2xl mx-auto">
-          {/* File Card */}
-          <div className="bg-white rounded-2xl border border-black/[0.07] overflow-hidden mb-6">
-            {/* File Preview */}
-            <div className="p-8 bg-gradient-to-br from-[#f5f4f0] to-[#e8e6e0] flex flex-col items-center">
-              <div className="w-20 h-20 rounded-2xl bg-white border border-black/[0.1] flex items-center justify-center mb-4 shadow-sm">
-                <FileText className="w-10 h-10 text-black/40" />
+      <ShareHeader />
+      <main className="px-6 pb-16 pt-24">
+        <div className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-[1fr_360px]">
+          <section className="overflow-hidden rounded-2xl border border-black/[0.07] bg-white">
+            <PreviewPanel metadata={metadata} />
+            <div className="border-t border-black/[0.06] p-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h1 className="text-xl font-medium">{fileLoading ? "Loading..." : fileName}</h1>
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs text-black/45">
+                    <span>ID #{fileId}</span>
+                    {metadata?.fileSize ? <span>{formatFileSize(Number(metadata.fileSize))}</span> : null}
+                    {metadata?.expiresAt ? <span>Expires {formatDate(metadata.expiresAt)}</span> : <span>No expiry</span>}
+                    {isAnonymousShare && <span>Anonymous sender</span>}
+                  </div>
+                </div>
+                <button
+                  onClick={copyCurrentLink}
+                  className="inline-flex items-center gap-2 rounded-xl border border-black/[0.08] px-3 py-2 text-xs hover:bg-black/[0.03]"
+                >
+                  {copied ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+                  {copied ? "Copied" : "Copy link"}
+                </button>
               </div>
-              <h1 className="text-xl font-medium text-center mb-2">
-                {fileLoading ? "Loading..." : `File #${fileId}`}
-              </h1>
-              {fileInfo && (
-                <div className="flex items-center gap-4 text-sm text-black/50">
-                  <span>
-                    {remainingDownloads === Infinity ? "∞ downloads" : `${remainingDownloads} downloads left`}
-                  </span>
-                  {fileInfo.contentEncrypted && (
-                    <>
-                      <span>•</span>
-                      <span className="flex items-center gap-1 text-emerald-600">
-                        <Lock className="w-3 h-3" />
-                        Encrypted
+            </div>
+
+            <div className="border-t border-black/[0.06] bg-black/[0.02] px-6 py-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-sm text-emerald-700">
+                  <Shield className="h-4 w-4" />
+                  Protected access, on-chain audit trail
+                </div>
+                <div className="flex flex-wrap gap-3 text-xs text-black/45">
+                  <span>{remainingDownloads === Infinity ? "Unlimited downloads" : `${remainingDownloads} downloads left`}</span>
+                  {fileInfo?.contentEncrypted && <span>AES-256 encrypted</span>}
+                  {metadata?.previewEnabled && <span>Preview enabled</span>}
+                  {isAnonymousShare && <span>Owner hidden</span>}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <aside className="space-y-4">
+            <div className="rounded-2xl border border-black/[0.07] bg-white p-5">
+              {!fileInfo ? (
+                <div className="rounded-xl bg-black/[0.02] p-4 text-sm text-black/50">
+                  <div className="mb-1 flex items-center gap-2 font-medium text-black/65">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading access details
+                  </div>
+                  Reading this file from the Sepolia contract.
+                </div>
+              ) : expired ? (
+                <div className="rounded-xl bg-red-50 p-4 text-sm text-red-700">
+                  <div className="mb-1 flex items-center gap-2 font-medium">
+                    <AlertCircle className="h-4 w-4" />
+                    Link expired
+                  </div>
+                  This file is no longer available.
+                </div>
+              ) : canRequestAccess ? (
+                <div className="space-y-4">
+                  <div>
+                    <h2 className="font-medium">Request Access</h2>
+                    <p className="mt-1 text-xs text-black/45">Payment and access checks are handled on Sepolia.</p>
+                  </div>
+
+                  {fileInfo && fileInfo.price > 0n && (
+                    <div className="flex items-center justify-between rounded-xl bg-black/[0.02] p-4">
+                      <span className="flex items-center gap-2 text-sm text-black/55">
+                        <DollarSign className="h-4 w-4" />
+                        Access price
                       </span>
-                    </>
+                      <span className="font-medium">{formatNativePrice(fileInfo.price)} ETH</span>
+                    </div>
                   )}
+
+                  {fileInfo?.hasPassword && (
+                    <div>
+                      <label className="mb-2 flex items-center gap-2 text-sm font-medium">
+                        <Key className="h-4 w-4 text-black/40" />
+                        Access Code
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showAccessCode ? "text" : "password"}
+                          value={accessCode}
+                          onChange={(event) => setAccessCode(event.target.value)}
+                          placeholder="Enter PIN"
+                          className="w-full rounded-xl border border-black/[0.1] bg-black/[0.02] px-4 py-3 pr-11 text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowAccessCode((value) => !value)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-black/35 hover:text-black"
+                        >
+                          {showAccessCode ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {!isConnected ? (
+                    <button
+                      onClick={() => connect({ connector: connectors[0] })}
+                      disabled={isConnecting}
+                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#111] py-4 text-sm font-medium text-white disabled:opacity-50"
+                    >
+                      {isConnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
+                      Connect Wallet
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleRequestAccess}
+                      disabled={isRequestingAccess || isWaitingAccess}
+                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#111] py-4 text-sm font-medium text-white disabled:opacity-50"
+                    >
+                      {isRequestingAccess || isWaitingAccess ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          {isRequestingAccess ? "Confirm in wallet..." : "Confirming..."}
+                        </>
+                      ) : (
+                        <>
+                          <Lock className="h-4 w-4" />
+                          {fileInfo && fileInfo.price > 0n ? "Pay and unlock" : "Unlock file"}
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="rounded-xl bg-emerald-50 p-4 text-emerald-700">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <CheckCircle2 className="h-5 w-5" />
+                      Access verified
+                    </div>
+                    <p className="mt-1 text-xs text-emerald-700/75">Your wallet is authorized for this file.</p>
+                  </div>
+
+                  {!hasSecret && (
+                    <div className="rounded-xl border border-amber-100 bg-amber-50 p-4 text-sm text-amber-800">
+                      Missing the secret fragment. Ask the sender for the full link to decrypt this file.
+                    </div>
+                  )}
+
+                  {canDownload && (
+                    <button
+                      onClick={handleDownload}
+                      disabled={downloading || isDownloadingTx || isWaitingDownload}
+                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#111] py-4 text-sm font-medium text-white disabled:opacity-60"
+                    >
+                      {downloading || isDownloadingTx || isWaitingDownload ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Downloading...
+                        </>
+                      ) : (
+                        <>
+                          <Download className="h-4 w-4" />
+                          Download file
+                        </>
+                      )}
+                    </button>
+                  )}
+
+                  {(downloaded || alreadyDownloaded) && (
+                    <div className="rounded-xl bg-black/[0.02] p-4 text-center text-sm text-black/50">
+                      <CheckCircle className="mx-auto mb-2 h-6 w-6 text-black/30" />
+                      {downloaded ? "Download complete" : "This wallet already downloaded the file"}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {error && (
+                <div className="mt-4 flex items-start gap-2 rounded-xl bg-red-50 p-3 text-sm text-red-700">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  {error}
                 </div>
               )}
             </div>
 
-            {/* Privacy Status */}
-            <div className="px-6 py-4 border-t border-b border-black/[0.06] bg-black/[0.02]">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-emerald-600" />
-                  <span className="text-sm font-medium text-emerald-700">FHE Protected</span>
-                </div>
-                <div className="flex items-center gap-4 text-xs text-black/40">
-                  <span className="flex items-center gap-1">
-                    <Download className="w-3 h-3" />
-                    {fileInfo ? fileInfo.downloadCount.toString() : "0"} downloads
-                  </span>
-                </div>
+            <div className="rounded-2xl border border-black/[0.07] bg-white p-5 text-xs text-black/45">
+              <div className="mb-2 flex items-center gap-2 text-sm font-medium text-black/70">
+                <Shield className="h-4 w-4" />
+                Privacy Notes
               </div>
+              {isAnonymousShare
+                ? "This share is in anonymous mode: public owner lookups return a zero address. File keys stay off-chain in the URL fragment while access and download accounting remain on Sepolia."
+                : "File content keys are kept off-chain in the URL fragment. Access grants, expiry, folders, and download accounting are recorded on-chain."}
             </div>
-
-            {/* Access Form / Download */}
-            {canRequestAccess ? (
-              <div className="p-6 space-y-6">
-                {/* Price Info */}
-                {hasPrice && (
-                  <div className="flex items-center justify-between p-4 bg-black/[0.02] rounded-xl">
-                    <div className="flex items-center gap-2">
-                      <DollarSign className="w-4 h-4 text-black/40" />
-                      <span className="text-sm">Access Price</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{priceUSDC} USDC</span>
-                      <Lock className="w-3 h-3 text-black/20" />
-                    </div>
-                  </div>
-                )}
-
-                {/* Access Code Input */}
-                {needsAccessCode && (
-                  <div>
-                    <label className="flex items-center gap-2 text-sm font-medium mb-3">
-                      <Key className="w-4 h-4 text-black/40" />
-                      Access Code (PIN)
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showAccessCode ? "text" : "password"}
-                        value={accessCode}
-                        onChange={(e) => setAccessCode(e.target.value)}
-                        placeholder="Enter PIN code"
-                        className="w-full px-4 py-3 rounded-xl border border-black/[0.1] bg-black/[0.02] text-sm focus:outline-none focus:border-black/[0.2]"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowAccessCode(!showAccessCode)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-black/30 hover:text-black"
-                      >
-                        {showAccessCode ? <Eye className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Error */}
-                {error && (
-                  <div className="flex items-center gap-2 p-3 bg-red-50 text-red-600 rounded-lg text-sm">
-                    <AlertCircle className="w-4 h-4" />
-                    {error}
-                  </div>
-                )}
-
-                {/* Privacy Notice */}
-                <div className="flex items-start gap-3 p-4 bg-emerald-50 rounded-xl">
-                  <Shield className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-                  <div className="text-sm text-emerald-700">
-                    <div className="font-medium mb-1">FHE Privacy Protection</div>
-                    <div className="text-emerald-600/80 text-xs">
-                      All access rules (price, PIN code, limits) are encrypted on-chain using FHE.
-                      Your PIN and payment are private.
-                    </div>
-                  </div>
-                </div>
-
-                {/* Request Access Button */}
-                <button
-                  onClick={handleRequestAccess}
-                  disabled={downloading || isRequestingAccess || isWaitingAccess}
-                  className="w-full py-4 rounded-xl bg-[#111] text-white font-medium hover:bg-[#333] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {downloading || isRequestingAccess || isWaitingAccess ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      {isRequestingAccess ? "Confirm in wallet..." : "Processing..."}
-                    </>
-                  ) : (
-                    <>
-                      <Lock className="w-4 h-4" />
-                      {hasPrice ? `Pay ${priceUSDC} USDC & Access` : "Request Access"}
-                    </>
-                  )}
-                </button>
-
-                {/* Connect Wallet */}
-                {!isConnected && (
-                  <div className="text-center p-4 bg-black/[0.02] rounded-xl">
-                    <Wallet className="w-6 h-6 text-black/30 mx-auto mb-2" />
-                    <div className="text-sm text-black/50">
-                      Connect your wallet to access this file
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              /* Download Section */
-              <div className="p-6 space-y-6">
-                {/* Access Verified */}
-                <div className="flex items-center gap-2 p-4 bg-emerald-50 rounded-xl">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                  <div>
-                    <div className="text-sm font-medium text-emerald-700">Access Verified</div>
-                    <div className="text-xs text-emerald-600">Your access has been confirmed on-chain</div>
-                  </div>
-                </div>
-
-                {/* File Info */}
-                {fileInfo && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between py-2">
-                      <span className="text-sm text-black/50">IPFS Hash</span>
-                      <code className="text-xs text-black/60 font-mono">{fileInfo.ipfsHash.slice(0, 20)}...</code>
-                    </div>
-                    <div className="flex items-center justify-between py-2">
-                      <span className="text-sm text-black/50">Content</span>
-                      <span className="text-sm">{fileInfo.contentEncrypted ? "Encrypted (AES-256)" : "Unencrypted"}</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Download Button */}
-                {canDownload && (
-                  <button
-                    onClick={handleDownload}
-                    disabled={downloading || isDownloadingTx || isWaitingDownload}
-                    className={`w-full py-4 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 ${
-                      downloaded
-                        ? "bg-emerald-500 text-white"
-                        : "bg-[#111] text-white hover:bg-[#333]"
-                    } disabled:opacity-80`}
-                  >
-                    {downloading || isDownloadingTx || isWaitingDownload ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Downloading...
-                      </>
-                    ) : (
-                      <>
-                        <Download className="w-4 h-4" />
-                        Download File
-                      </>
-                    )}
-                  </button>
-                )}
-
-                {downloaded && (
-                  <div className="text-center p-4 bg-emerald-50 rounded-xl">
-                    <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
-                    <div className="text-sm font-medium text-emerald-700">Download Complete</div>
-                    <div className="text-xs text-emerald-600 mt-1">
-                      File retrieved from IPFS
-                    </div>
-                  </div>
-                )}
-
-                {alreadyDownloaded && (
-                  <div className="text-center p-4 bg-black/[0.02] rounded-xl">
-                    <CheckCircle className="w-6 h-6 text-black/30 mx-auto mb-2" />
-                    <div className="text-sm text-black/50">
-                      You have already downloaded this file
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Privacy Footer */}
-          <div className="mt-8 text-center">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-black/[0.03] text-xs text-black/40">
-              <Lock className="w-3 h-3" />
-              Powered by FhenixDropBox on Ethereum Sepolia
-            </div>
-          </div>
+          </aside>
         </div>
       </main>
     </div>
   )
 }
 
+function ShareHeader() {
+  return (
+    <header className="fixed inset-x-0 top-0 z-50 border-b border-black/[0.08] bg-white/85 backdrop-blur-xl">
+      <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
+        <Link href="/" className="flex items-center gap-2">
+          <Shield className="h-6 w-6 text-[#111]" />
+          <span className="text-sm font-medium">FhenixDropBox</span>
+        </Link>
+        <Link href="/dashboard" className="flex items-center gap-2 text-xs text-black/50 hover:text-black">
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Dashboard
+        </Link>
+      </div>
+    </header>
+  )
+}
+
 export default function SharePage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params)
-  const [mounted, setMounted] = useState(false)
-  const [shareHash, setShareHash] = useState('')
+  const fileIdFromParams = Number.parseInt(params.id, 10)
+  const fileId = Number.isNaN(fileIdFromParams) || fileIdFromParams < 0 ? -1 : fileIdFromParams
 
-  useEffect(() => {
-    setMounted(true)
-  }, [])
-
-  // Validate file ID is a positive integer
-  const fileIdFromParams = parseInt(params.id, 10)
-  const fileId = isNaN(fileIdFromParams) || fileIdFromParams < 0 ? 0 : fileIdFromParams
-
-  // Generate hash from file ID for verification
-  const generateHash = (input: string): string => {
-    let hash = 0
-    for (let i = 0; i < input.length; i++) {
-      const char = input.charCodeAt(i)
-      hash = ((hash << 5) - hash) + char
-      hash = hash & hash
-    }
-    return Math.abs(hash).toString(16).padStart(8, '0').toUpperCase()
+  if (fileId < 0) {
+    return (
+      <div className="min-h-screen bg-[#F5F4F0]">
+        <ShareHeader />
+        <main className="px-6 pt-32 text-center">
+          <XCircle className="mx-auto mb-4 h-16 w-16 text-black/20" />
+          <h1 className="mb-2 text-xl font-medium">Invalid Link</h1>
+          <p className="text-sm text-black/50">This share link is not valid.</p>
+        </main>
+      </div>
+    )
   }
 
-  useEffect(() => {
-    if (mounted && fileId > 0) {
-      setShareHash(generateHash(fileId.toString()))
-    }
-  }, [fileId, mounted])
-
-  return (
-    <div>
-      {mounted && fileId > 0 && (
-        <div className="hidden">
-          {/* Store hash in data attribute for client-side access */}
-          <div id="share-hash" data-hash={shareHash} />
-        </div>
-      )}
-      <ShareContent fileId={fileId} shareHash={shareHash} />
-    </div>
-  )
+  return <ShareContent fileId={fileId} />
 }

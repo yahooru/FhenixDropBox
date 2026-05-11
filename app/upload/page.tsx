@@ -1,26 +1,52 @@
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract } from "wagmi"
-import {
-  Upload, X, Lock, Key, Clock, Download, DollarSign, Eye, EyeOff,
-  Loader2, CheckCircle2, AlertCircle, FileText, ArrowLeft, Shield, Link2, EyeOff as BlurIcon, FolderPlus, Zap
-} from "lucide-react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { QRCodeSVG } from "qrcode.react"
-import { FHENIX_DROPBOX_ABI, CONTRACT_ADDRESS, hashPassword, ZERO_BYTES32 } from "@/lib/fhenix"
-import { uploadToIPFSViaAPI, generateEncryptionKey, generateIV } from "@/lib/ipfs"
+import { useAccount, useReadContract, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { sepolia } from "wagmi/chains"
+import { QRCodeSVG } from "qrcode.react"
+import {
+  AlertCircle,
+  ArrowLeft,
+  CheckCircle2,
+  Clock,
+  Copy,
+  Download,
+  Eye,
+  FileText,
+  Key,
+  Link2,
+  Loader2,
+  Lock,
+  Shield,
+  Upload,
+  X,
+  Zap,
+} from "lucide-react"
+import {
+  CONTRACT_ADDRESS,
+  FHENIX_DROPBOX_ABI,
+  ZERO_BYTES32,
+  hashPassword,
+  parseNativePrice,
+  type UploadInput,
+} from "@/lib/fhenix"
+import { formatFileSize, generateEncryptionKey, generateIV, uploadToIPFSViaAPI } from "@/lib/ipfs"
+import { getPreferences } from "@/lib/preferences"
+import { buildShareUrl, saveLocalFileSecrets, type LocalFileSecret } from "@/lib/share-links"
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+const MAX_FILES = 10
+const MAX_FILE_SIZE = 50 * 1024 * 1024
 
 interface FileItem {
   id: string
-  file: File | null
+  file: File
   name: string
-  size: string
+  mimeType: string
+  sizeBytes: number
+  sizeLabel: string
   ipfsHash: string | null
+  previewHash: string | null
   encryptionKey: string | null
   encryptionIv: string | null
   isEncrypted: boolean
@@ -35,104 +61,183 @@ interface AccessRules {
   maxDownloads: string
   expiryDays: string
   encryptContent: boolean
+  enablePreview: boolean
 }
 
-interface UploadedFileData {
-  ipfsHash: string
-  encryptionKey?: string
-  encryptionIv?: string
-  isEncrypted: boolean
-  name: string
+function canPreview(file: File) {
+  return file.type.startsWith("image/") || file.type === "application/pdf"
 }
 
-// ─── Coming Soon Tooltip ─────────────────────────────────────────────────────
-
-function ComingSoon({ children, label }: { children: React.ReactNode; label: string }) {
-  const [showTooltip, setShowTooltip] = useState(false)
-
-  return (
-    <div className="relative">
-      <div
-        onMouseEnter={() => setShowTooltip(true)}
-        onMouseLeave={() => setShowTooltip(false)}
-      >
-        {children}
-      </div>
-      {showTooltip && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#111] text-white text-xs rounded-lg whitespace-nowrap z-50">
-          {label}
-          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#111]" />
-        </div>
-      )}
-    </div>
-  )
+async function encryptFileForUpload(file: File, keyBase64: string, ivBase64: string) {
+  const fileBuffer = await file.arrayBuffer()
+  const keyData = Uint8Array.from(atob(keyBase64), (c) => c.charCodeAt(0))
+  const ivData = Uint8Array.from(atob(ivBase64), (c) => c.charCodeAt(0))
+  const cryptoKey = await crypto.subtle.importKey("raw", keyData, { name: "AES-GCM", length: 256 }, false, ["encrypt"])
+  const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv: ivData }, cryptoKey, fileBuffer)
+  return new File([new Blob([encrypted])], `encrypted_${file.name}`, { type: "application/octet-stream" })
 }
 
-// ─── Main Component ─────────────────────────────────────────────────────────
+async function createImagePreview(file: File) {
+  const imageUrl = URL.createObjectURL(file)
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = imageUrl
+  })
+
+  const maxWidth = 900
+  const scale = Math.min(1, maxWidth / image.width)
+  const canvas = document.createElement("canvas")
+  canvas.width = Math.max(1, Math.round(image.width * scale))
+  canvas.height = Math.max(1, Math.round(image.height * scale))
+  const ctx = canvas.getContext("2d")
+  if (!ctx) throw new Error("Preview canvas unavailable")
+  ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
+  URL.revokeObjectURL(imageUrl)
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((result) => {
+      if (result) resolve(result)
+      else reject(new Error("Preview generation failed"))
+    }, "image/jpeg", 0.82)
+  })
+
+  return new File([blob], `preview_${file.name.replace(/\.[^.]+$/, "")}.jpg`, { type: "image/jpeg" })
+}
+
+async function createPreviewFile(file: File) {
+  if (file.type.startsWith("image/")) return createImagePreview(file)
+  if (file.type === "application/pdf") return new File([file], `preview_${file.name}`, { type: file.type })
+  return null
+}
 
 export default function UploadPage() {
-  const router = useRouter()
   const { address, isConnected, chain } = useAccount()
+  const { switchChain, isPending: isSwitchingChain } = useSwitchChain()
+  const { writeContract, data: txHash, isPending, error: writeError } = useWriteContract()
+  const { data: receipt, isLoading: isWaiting, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
+
   const [dragActive, setDragActive] = useState(false)
   const [files, setFiles] = useState<FileItem[]>([])
-  const [showAdvanced, setShowAdvanced] = useState(false)
   const [accessRules, setAccessRules] = useState<AccessRules>({
     price: "0",
     accessCode: "",
     maxDownloads: "100",
-    expiryDays: "365",
+    expiryDays: "7",
     encryptContent: true,
+    enablePreview: true,
   })
+  const [anonymousMode, setAnonymousMode] = useState(false)
   const [showAccessCode, setShowAccessCode] = useState(false)
   const [deploying, setDeploying] = useState(false)
   const [deployed, setDeployed] = useState(false)
-  const [uploadedFiles, setUploadedFiles] = useState<UploadedFileData[]>([])
-  const [uploadProgress, setUploadProgress] = useState(0)
   const [fileIds, setFileIds] = useState<bigint[]>([])
-  const [qrModalFile, setQrModalFile] = useState<{ fileId: bigint; fileName: string } | null>(null)
-  const [baseUrl, setBaseUrl] = useState<string>('')
+  const [baseUrl, setBaseUrl] = useState("")
+  const [notice, setNotice] = useState<string | null>(null)
+  const [qrModalFile, setQrModalFile] = useState<{ fileId: bigint; file: FileItem } | null>(null)
 
   useEffect(() => {
     setBaseUrl(window.location.origin)
   }, [])
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return "0 Bytes"
-    const k = 1024
-    const sizes = ["Bytes", "KB", "MB", "GB"]
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
-  }
+  useEffect(() => {
+    if (!address) return
+    const preferences = getPreferences(address)
+    setAnonymousMode(preferences.anonymousUploads)
+    setAccessRules((current) => ({
+      ...current,
+      price: preferences.defaultPrice,
+      maxDownloads: preferences.defaultDownloads,
+      expiryDays: preferences.defaultExpiry,
+    }))
+  }, [address])
 
-  // ─── Drag & Drop ────────────────────────────────────────────────────────────
+  const { data: totalFilesBefore } = useReadContract({
+    address: CONTRACT_ADDRESS as `0x${string}`,
+    abi: FHENIX_DROPBOX_ABI,
+    functionName: "totalFiles",
+    query: { enabled: !!address },
+  }) as { data: bigint | undefined }
 
-  const handleDrag = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true)
-    } else if (e.type === "dragleave") {
-      setDragActive(false)
-    }
+  const readyFiles = useMemo(() => files.filter((file) => file.uploaded && file.ipfsHash), [files])
+  const uploadProgress = files.length === 0 ? 0 : Math.round((readyFiles.length / files.length) * 100)
+  const wrongNetwork = !!chain && chain.id !== sepolia.id
+
+  const updateFile = useCallback((id: string, patch: Partial<FileItem>) => {
+    setFiles((prev) => prev.map((file) => (file.id === id ? { ...file, ...patch } : file)))
   }, [])
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setDragActive(false)
+  const uploadFileItem = useCallback(async (item: FileItem, rules: AccessRules) => {
+    try {
+      let fileToUpload = item.file
+      let encryptionKey: string | null = null
+      let encryptionIv: string | null = null
+      let previewHash: string | null = null
 
-    if (e.dataTransfer.files) {
-      addFiles(Array.from(e.dataTransfer.files))
+      if (rules.enablePreview && canPreview(item.file)) {
+        const previewFile = await createPreviewFile(item.file)
+        if (previewFile) {
+          const preview = await uploadToIPFSViaAPI(previewFile)
+          previewHash = preview.hash
+        }
+      }
+
+      if (rules.encryptContent) {
+        encryptionKey = generateEncryptionKey()
+        encryptionIv = generateIV()
+        fileToUpload = await encryptFileForUpload(item.file, encryptionKey, encryptionIv)
+      }
+
+      const result = await uploadToIPFSViaAPI(fileToUpload)
+      updateFile(item.id, {
+        ipfsHash: result.hash,
+        previewHash,
+        encryptionKey,
+        encryptionIv,
+        isEncrypted: rules.encryptContent,
+        uploading: false,
+        uploaded: true,
+      })
+    } catch (error) {
+      console.error("Upload error:", error)
+      updateFile(item.id, {
+        uploading: false,
+        uploaded: false,
+        error: error instanceof Error ? error.message : "Upload failed",
+      })
     }
-  }, [])
+  }, [updateFile])
 
-  const addFiles = (fileList: File[]) => {
-    const newFiles: FileItem[] = fileList.map((file, index) => ({
-      id: `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`,
+  const addFiles = useCallback((fileList: File[]) => {
+    setNotice(null)
+
+    const availableSlots = MAX_FILES - files.length
+    if (availableSlots <= 0) {
+      setNotice(`You can upload up to ${MAX_FILES} files per batch.`)
+      return
+    }
+
+    const selected = fileList.slice(0, availableSlots)
+    if (fileList.length > availableSlots) {
+      setNotice(`Only ${availableSlots} more file(s) were added because this batch is capped at ${MAX_FILES}.`)
+    }
+
+    const accepted = selected.filter((file) => {
+      if (file.size <= MAX_FILE_SIZE) return true
+      setNotice(`${file.name} is larger than 50MB and was skipped.`)
+      return false
+    })
+
+    const newFiles: FileItem[] = accepted.map((file, index) => ({
+      id: `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
       file,
       name: file.name,
-      size: formatFileSize(file.size),
+      mimeType: file.type || "application/octet-stream",
+      sizeBytes: file.size,
+      sizeLabel: formatFileSize(file.size),
       ipfsHash: null,
+      previewHash: null,
       encryptionKey: null,
       encryptionIv: null,
       isEncrypted: accessRules.encryptContent,
@@ -140,211 +245,106 @@ export default function UploadPage() {
       uploaded: false,
       error: null,
     }))
-    setFiles(prev => [...prev, ...newFiles])
-  }
 
-  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      addFiles(Array.from(e.target.files))
-    }
-  }
+    setFiles((prev) => [...prev, ...newFiles])
+    newFiles.forEach((file) => void uploadFileItem(file, accessRules))
+  }, [accessRules, files.length, uploadFileItem])
+
+  const handleDrag = useCallback((event: React.DragEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setDragActive(event.type === "dragenter" || event.type === "dragover")
+  }, [])
+
+  const handleDrop = useCallback((event: React.DragEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setDragActive(false)
+    addFiles(Array.from(event.dataTransfer.files || []))
+  }, [addFiles])
 
   const removeFile = (id: string) => {
-    setFiles(prev => prev.filter(f => f.id !== id))
+    setFiles((prev) => prev.filter((file) => file.id !== id))
   }
 
-  // ─── IPFS Upload ────────────────────────────────────────────────────────────
-
   useEffect(() => {
-    const uploadPendingFiles = files.filter(f => f.uploading && !f.ipfsHash && !f.error)
-    if (uploadPendingFiles.length === 0) return
+    if (!isSuccess || totalFilesBefore === undefined || deployed) return
 
-    const uploadFiles = async () => {
-      for (const fileItem of uploadPendingFiles) {
-        if (!fileItem.file) continue
+    const startId = Number(totalFilesBefore)
+    const newFileIds = readyFiles.map((_, index) => BigInt(startId + index))
 
-        try {
-          let result: { hash: string; size: number; timestamp: string }
-          let encryptionKey: string | null = null
-          let encryptionIv: string | null = null
-
-          if (accessRules.encryptContent) {
-            // Generate encryption key and IV
-            encryptionKey = generateEncryptionKey()
-            encryptionIv = generateIV()
-
-            // Encrypt file content
-            const fileBuffer = await fileItem.file.arrayBuffer()
-            const keyData = Uint8Array.from(atob(encryptionKey), c => c.charCodeAt(0))
-            const ivData = Uint8Array.from(atob(encryptionIv), c => c.charCodeAt(0))
-
-            const cryptoKey = await crypto.subtle.importKey(
-              'raw', keyData, { name: 'AES-GCM', length: 256 }, false, ['encrypt']
-            )
-
-            const encrypted = await crypto.subtle.encrypt(
-              { name: 'AES-GCM', iv: ivData },
-              cryptoKey,
-              fileBuffer
-            )
-
-            // Upload encrypted file
-            const encryptedBlob = new Blob([encrypted])
-            const encryptedFile = new File([encryptedBlob], `enc_${fileItem.name}`)
-
-            result = await uploadToIPFSViaAPI(encryptedFile)
-          } else {
-            // Upload unencrypted
-            result = await uploadToIPFSViaAPI(fileItem.file)
-          }
-
-          setFiles(prev => prev.map(f =>
-            f.id === fileItem.id
-              ? {
-                  ...f,
-                  ipfsHash: result.hash,
-                  encryptionKey,
-                  encryptionIv,
-                  isEncrypted: accessRules.encryptContent,
-                  uploading: false,
-                  uploaded: true
-                }
-              : f
-          ))
-        } catch (error) {
-          console.error('Upload error:', error)
-          setFiles(prev => prev.map(f =>
-            f.id === fileItem.id
-              ? { ...f, uploading: false, error: "Upload failed" }
-              : f
-          ))
-        }
-      }
+    if (address) {
+      const secrets: LocalFileSecret[] = readyFiles.map((file, index) => ({
+        fileId: newFileIds[index].toString(),
+        fileName: file.name,
+        mimeType: file.mimeType,
+        fileSize: file.sizeBytes,
+        ipfsHash: file.ipfsHash || "",
+        encrypted: file.isEncrypted,
+        encryptionKey: file.encryptionKey || undefined,
+        encryptionIv: file.encryptionIv || undefined,
+        previewHash: file.previewHash || undefined,
+        anonymousUpload: anonymousMode,
+        createdAt: Date.now(),
+      }))
+      saveLocalFileSecrets(address, secrets)
     }
 
-    uploadFiles()
-  }, [files, accessRules.encryptContent])
-
-  // Calculate upload progress
-  useEffect(() => {
-    if (files.length === 0) {
-      setUploadProgress(0)
-      return
-    }
-    const uploaded = files.filter(f => f.uploaded).length
-    setUploadProgress(Math.round((uploaded / files.length) * 100))
-  }, [files])
-
-  // ─── Contract Interaction ──────────────────────────────────────────────────────
-
-  const { writeContract, data: txHash, isPending, error: writeError } = useWriteContract()
-
-  const { isLoading: isWaiting, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
-
-  // Get total files before upload to calculate file IDs
-  const { data: totalFilesBefore } = useReadContract({
-    address: CONTRACT_ADDRESS as `0x${string}`,
-    abi: FHENIX_DROPBOX_ABI,
-    functionName: 'totalFiles',
-    query: { enabled: !!address }
-  }) as { data: bigint | undefined }
-
-  useEffect(() => {
-    if (isSuccess && totalFilesBefore !== undefined && !deployed) {
-      const filesUploaded = files.filter(f => f.uploaded && f.ipfsHash).length
-      const startId = Number(totalFilesBefore)
-
-      // Generate IDs for all uploaded files
-      const newFileIds: bigint[] = []
-      for (let i = 0; i < filesUploaded; i++) {
-        newFileIds.push(BigInt(startId + i))
-      }
-
-      // Store uploaded file data
-      const uploadedFileData: UploadedFileData[] = files
-        .filter(f => f.uploaded && f.ipfsHash)
-        .map(f => ({
-          ipfsHash: f.ipfsHash!,
-          encryptionKey: f.encryptionKey || undefined,
-          encryptionIv: f.encryptionIv || undefined,
-          isEncrypted: f.isEncrypted,
-          name: f.name
-        }))
-
-      setUploadedFiles(uploadedFileData)
-      setFileIds(newFileIds)
-      setDeployed(true)
-      setDeploying(false)
-    }
-  }, [isSuccess, totalFilesBefore, deployed, files])
+    setFileIds(newFileIds)
+    setDeploying(false)
+    setDeployed(true)
+  }, [address, anonymousMode, deployed, isSuccess, readyFiles, totalFilesBefore])
 
   const handleDeploy = async () => {
-    const readyFiles = files.filter(f => f.uploaded && f.ipfsHash)
-    if (readyFiles.length === 0 || !address) return
+    if (!address || readyFiles.length === 0) return
+    if (wrongNetwork) {
+      switchChain({ chainId: sepolia.id })
+      return
+    }
 
     setDeploying(true)
+    setNotice(null)
 
     try {
-      // Hash the access code
-      const accessCodeHash = accessRules.accessCode
-        ? hashPassword(accessRules.accessCode)
-        : ZERO_BYTES32
+      const price = parseNativePrice(accessRules.price || "0")
+      const accessCodeHash = accessRules.accessCode ? hashPassword(accessRules.accessCode) : ZERO_BYTES32
 
-      // Create encryption key hash for content encryption
-      const encryptionKeyHash = readyFiles[0].encryptionKey
-        ? hashPassword(readyFiles[0].encryptionKey!)
-        : ZERO_BYTES32
+      const inputs: UploadInput[] = readyFiles.map((file) => ({
+        ipfsHash: file.ipfsHash || "",
+        fileName: file.name,
+        mimeType: file.mimeType,
+        fileSize: BigInt(file.sizeBytes),
+        price,
+        maxDownloads: BigInt(accessRules.maxDownloads || "0"),
+        expiryDays: BigInt(accessRules.expiryDays || "0"),
+        accessCodeHash,
+        contentEncrypted: file.isEncrypted,
+        encryptionKeyHash: file.encryptionKey ? hashPassword(file.encryptionKey) : ZERO_BYTES32,
+        folderId: 0n,
+        previewEnabled: !!file.previewHash,
+        previewHash: file.previewHash || "",
+        anonymousUpload: anonymousMode,
+      }))
 
-      // Upload first file with access rules
-      const firstFile = readyFiles[0]
       writeContract({
         address: CONTRACT_ADDRESS as `0x${string}`,
         abi: FHENIX_DROPBOX_ABI,
-        functionName: 'uploadFile',
-        args: [
-          firstFile.ipfsHash!,
-          BigInt(parseFloat(accessRules.price || "0") * 1e6),
-          BigInt(accessRules.maxDownloads || "100"),
-          BigInt(accessRules.expiryDays || "365"),
-          accessCodeHash,
-          accessRules.encryptContent,
-          encryptionKeyHash
-        ],
+        functionName: "uploadFilesBatch",
+        args: [inputs],
         chainId: sepolia.id,
       })
     } catch (error) {
       console.error("Deploy error:", error)
+      setNotice(error instanceof Error ? error.message : "Failed to submit transaction")
       setDeploying(false)
     }
   }
 
   const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-      // Show brief feedback
-      const btn = document.activeElement as HTMLButtonElement
-      if (btn) {
-        const originalText = btn.innerHTML
-        btn.innerHTML = 'Copied!'
-        btn.classList.add('bg-emerald-600')
-        setTimeout(() => {
-          btn.innerHTML = originalText
-          btn.classList.remove('bg-emerald-600')
-        }, 1500)
-      }
-    } catch (err) {
-      console.error('Failed to copy:', err)
-      // Fallback for older browsers
-      const textArea = document.createElement('textarea')
-      textArea.value = text
-      document.body.appendChild(textArea)
-      textArea.select()
-      document.execCommand('copy')
-      document.body.removeChild(textArea)
-    }
+    await navigator.clipboard.writeText(text)
+    setNotice("Share link copied.")
+    setTimeout(() => setNotice(null), 1600)
   }
-
-  // ─── Render ─────────────────────────────────────────────────────────────────
 
   if (!isConnected) {
     return (
@@ -357,480 +357,388 @@ export default function UploadPage() {
           <Lock className="w-8 h-8 text-white" />
         </div>
         <h1 className="text-2xl font-medium mb-3">Connect Your Wallet</h1>
-        <p className="text-sm text-black/50">
-          Connect your wallet to upload and share files privately.
-        </p>
+        <p className="text-sm text-black/50">Connect your wallet to upload and share files privately.</p>
       </div>
     )
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
-      {/* Header */}
-      <div className="flex items-center gap-4">
-        <Link href="/dashboard" className="p-2 rounded-lg hover:bg-black/[0.04] transition-colors">
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        <div>
-          <h1 className="text-2xl font-medium">Upload Files</h1>
-          <p className="text-sm text-black/50">
-            Share files with encrypted access control
-          </p>
+    <div className="max-w-6xl mx-auto space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-4">
+          <Link href="/dashboard" className="p-2 rounded-lg hover:bg-black/[0.04] transition-colors">
+            <ArrowLeft className="w-5 h-5" />
+          </Link>
+          <div>
+            <h1 className="text-2xl font-medium">Upload Wave 4 Batch</h1>
+            <p className="text-sm text-black/50">
+              Encrypt locally, pin to IPFS, and register up to 10 files on-chain in one transaction.
+            </p>
+          </div>
+        </div>
+        <div className="rounded-xl border border-black/[0.07] bg-white px-4 py-3 text-xs text-black/55">
+          <div className="flex items-center gap-2">
+            <span className={`h-2 w-2 rounded-full ${wrongNetwork ? "bg-amber-500" : "bg-emerald-500"}`} />
+            {chain?.name || "Unknown network"}
+          </div>
         </div>
       </div>
 
-      {/* Network Status */}
-      <div className="bg-white rounded-xl border border-black/[0.07] p-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className={`w-2 h-2 rounded-full ${chain?.id === sepolia.id ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-          <span className="text-sm">{chain?.name || 'Unknown Network'}</span>
-        </div>
-        <div className="flex items-center gap-4 text-xs text-black/50">
-          <span>{files.length} files selected</span>
-          {files.length > 0 && (
-            <span>{uploadProgress}% uploaded</span>
-          )}
-        </div>
-      </div>
-
-      {/* File Upload Area */}
-      <div
-        className={`relative border-2 border-dashed rounded-2xl p-12 transition-colors ${
-          dragActive
-            ? "border-[#111] bg-black/[0.02]"
-            : "border-black/[0.15] hover:border-black/[0.25]"
-        }`}
-        onDragEnter={handleDrag}
-        onDragLeave={handleDrag}
-        onDragOver={handleDrag}
-        onDrop={handleDrop}
-      >
-        <input
-          type="file"
-          onChange={handleFileInput}
-          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-          multiple
-          disabled={deployed}
-        />
-
-        {files.length === 0 ? (
-          <div className="text-center">
-            <div className="w-16 h-16 rounded-2xl bg-black/[0.04] flex items-center justify-center mx-auto mb-4">
-              <Upload className="w-8 h-8 text-black/40" />
-            </div>
-            <div className="font-medium mb-2">Drop files here</div>
-            <div className="text-sm text-black/50">
-              or click to browse. Multiple files supported.
-            </div>
-            <div className="text-xs text-black/30 mt-2">Max 50MB per file</div>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {files.map((file) => (
-              <div key={file.id} className="flex items-center gap-4 p-4 bg-white rounded-xl border border-black/[0.07]">
-                <div className="w-12 h-12 rounded-xl bg-black/[0.04] flex items-center justify-center">
-                  <FileText className="w-6 h-6 text-black/40" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">{file.name}</div>
-                  <div className="text-xs text-black/50">{file.size}</div>
-                </div>
-                {file.uploading && (
-                  <Loader2 className="w-5 h-5 animate-spin text-black/30" />
-                )}
-                {file.uploaded && (
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                    {file.isEncrypted && (
-                      <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full flex items-center gap-1">
-                        <Lock className="w-2.5 h-2.5" />
-                        Encrypted
-                      </span>
-                    )}
-                  </div>
-                )}
-                {file.error && (
-                  <AlertCircle className="w-5 h-5 text-red-500" />
-                )}
-                {!deployed && !file.uploading && (
-                  <button
-                    onClick={() => removeFile(file.id)}
-                    className="p-2 rounded-lg hover:bg-black/[0.04]"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Access Rules */}
-      {!deployed && files.filter(f => f.uploaded).length > 0 && (
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-medium">Access Rules</h2>
-              <p className="text-sm text-black/50">All values are encrypted on-chain</p>
-            </div>
-            <button
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="text-sm text-black/50 hover:text-black"
-            >
-              {showAdvanced ? 'Hide Advanced' : 'Show Advanced'}
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Price */}
-            <div className="bg-white rounded-xl border border-black/[0.07] p-4">
-              <label className="flex items-center gap-2 text-sm font-medium mb-3">
-                <DollarSign className="w-4 h-4 text-black/40" />
-                Price (USDC)
-              </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  value={accessRules.price}
-                  onChange={(e) => setAccessRules({ ...accessRules, price: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-lg border border-black/[0.1] bg-black/[0.02] text-sm"
-                  placeholder="0"
-                  min="0"
-                  step="0.01"
-                />
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-black/40">
-                  USDC
-                </span>
-              </div>
-            </div>
-
-            {/* Access Code */}
-            <div className="bg-white rounded-xl border border-black/[0.07] p-4">
-              <label className="flex items-center gap-2 text-sm font-medium mb-3">
-                <Key className="w-4 h-4 text-black/40" />
-                Access Code
-              </label>
-              <div className="relative">
-                <input
-                  type={showAccessCode ? "text" : "password"}
-                  value={accessRules.accessCode}
-                  onChange={(e) => setAccessRules({ ...accessRules, accessCode: e.target.value })}
-                  className="w-full px-4 py-2.5 pr-10 rounded-lg border border-black/[0.1] bg-black/[0.02] text-sm"
-                  placeholder="Optional PIN code"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowAccessCode(!showAccessCode)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-black/30"
-                >
-                  {showAccessCode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            {/* Max Downloads */}
-            <div className="bg-white rounded-xl border border-black/[0.07] p-4">
-              <label className="flex items-center gap-2 text-sm font-medium mb-3">
-                <Download className="w-4 h-4 text-black/40" />
-                Max Downloads
-              </label>
-              <input
-                type="number"
-                value={accessRules.maxDownloads}
-                onChange={(e) => setAccessRules({ ...accessRules, maxDownloads: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-lg border border-black/[0.1] bg-black/[0.02] text-sm"
-                placeholder="100"
-                min="1"
-              />
-            </div>
-
-            {/* Expiry */}
-            <div className="bg-white rounded-xl border border-black/[0.07] p-4">
-              <label className="flex items-center gap-2 text-sm font-medium mb-3">
-                <Clock className="w-4 h-4 text-black/40" />
-                Expires (Days)
-              </label>
-              <input
-                type="number"
-                value={accessRules.expiryDays}
-                onChange={(e) => setAccessRules({ ...accessRules, expiryDays: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-lg border border-black/[0.1] bg-black/[0.02] text-sm"
-                placeholder="365"
-                min="0"
-              />
-            </div>
-          </div>
-
-          {/* Encryption Toggle */}
-          <div className="bg-white rounded-xl border border-black/[0.07] p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Shield className="w-5 h-5 text-black/40" />
-                <div>
-                  <div className="text-sm font-medium">Encrypt File Content</div>
-                  <div className="text-xs text-black/50">
-                    AES-256 encryption before IPFS upload
-                  </div>
-                </div>
-              </div>
-              <button
-                onClick={() => setAccessRules(prev => ({ ...prev, encryptContent: !prev.encryptContent }))}
-                className={`w-12 h-7 rounded-full relative transition-colors ${
-                  accessRules.encryptContent ? "bg-[#111]" : "bg-black/[0.1]"
-                }`}
-              >
-                <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-                  accessRules.encryptContent ? "left-[calc(100%-24px)]" : "left-1"
-                }`} />
-              </button>
-            </div>
-          </div>
-
-          {/* Advanced Options */}
-          {showAdvanced && (
-            <div className="bg-white rounded-xl border border-black/[0.07] p-4 space-y-4">
-              <h3 className="font-medium">Advanced Options</h3>
-
-              <ComingSoon label="Coming in Wave 3">
-                <div className="flex items-center justify-between p-4 bg-black/[0.02] rounded-lg opacity-50">
-                  <div className="flex items-center gap-3">
-                    <Link2 className="w-5 h-5 text-black/40" />
-                    <div>
-                      <div className="text-sm font-medium">Link Expiry</div>
-                      <div className="text-xs text-black/50">24h / 7d / 30d</div>
-                    </div>
-                  </div>
-                  <span className="text-xs bg-black/[0.1] px-2 py-1 rounded">Soon</span>
-                </div>
-              </ComingSoon>
-
-              <ComingSoon label="Coming in Wave 3">
-                <div className="flex items-center justify-between p-4 bg-black/[0.02] rounded-lg opacity-50">
-                  <div className="flex items-center gap-3">
-                    <Eye className="w-5 h-5 text-black/40" />
-                    <div>
-                      <div className="text-sm font-medium">File Preview</div>
-                      <div className="text-xs text-black/50">PDF & image thumbnails</div>
-                    </div>
-                  </div>
-                  <span className="text-xs bg-black/[0.1] px-2 py-1 rounded">Soon</span>
-                </div>
-              </ComingSoon>
-
-              <ComingSoon label="Coming in Wave 3">
-                <div className="flex items-center justify-between p-4 bg-black/[0.02] rounded-lg opacity-50">
-                  <div className="flex items-center gap-3">
-                    <FolderPlus className="w-5 h-5 text-black/40" />
-                    <div>
-                      <div className="text-sm font-medium">Folder Upload</div>
-                      <div className="text-xs text-black/50">Upload multiple files</div>
-                    </div>
-                  </div>
-                  <span className="text-xs bg-black/[0.1] px-2 py-1 rounded">Soon</span>
-                </div>
-              </ComingSoon>
-            </div>
-          )}
-
-          {/* FHE Privacy Notice */}
-          <div className="flex items-start gap-3 p-4 bg-emerald-50 rounded-xl border border-emerald-100">
-            <Shield className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-            <div className="text-sm text-emerald-700">
-              <div className="font-medium mb-1">FHE Privacy Protection</div>
-              <div className="text-emerald-600/80 text-xs">
-                Your access rules (price, downloads, expiry) are encrypted on-chain using FHE.
-                {accessRules.encryptContent && " File contents are encrypted with AES-256 before upload."}
-              </div>
-            </div>
-          </div>
-
-          {/* Error */}
-          {writeError && (
-            <div className="flex items-center gap-2 p-3 bg-red-50 text-red-600 rounded-lg text-sm">
-              <AlertCircle className="w-4 h-4" />
-              {writeError.message || "Transaction failed"}
-            </div>
-          )}
-
-          {/* Deploy Button */}
-          <button
-            onClick={handleDeploy}
-            disabled={deploying || isPending || isWaiting || files.filter(f => f.uploaded).length === 0}
-            className="w-full py-4 rounded-xl bg-[#111] text-white text-sm font-medium hover:bg-[#333] transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            {isPending || isWaiting ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                {isPending ? "Confirm in wallet..." : "Processing..."}
-              </>
-            ) : (
-              <>
-                <Lock className="w-4 h-4" />
-                Deploy {files.filter(f => f.uploaded).length} File(s) with Encrypted Rules
-              </>
-            )}
-          </button>
+      {notice && (
+        <div className="flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+          <AlertCircle className="h-4 w-4" />
+          {notice}
         </div>
       )}
 
-      {/* Success */}
-      {deployed && fileIds.length > 0 && (
-        <div className="bg-white rounded-2xl border border-black/[0.07] p-8 space-y-6">
-          <div className="text-center">
-            <div className="w-16 h-16 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-4">
-              <CheckCircle2 className="w-8 h-8 text-emerald-600" />
+      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+        <div className="space-y-6">
+          <div
+            className={`relative rounded-2xl border-2 border-dashed bg-white p-8 transition-colors ${
+              dragActive ? "border-[#111] bg-black/[0.02]" : "border-black/[0.12] hover:border-black/[0.22]"
+            }`}
+            onDragEnter={handleDrag}
+            onDragLeave={handleDrag}
+            onDragOver={handleDrag}
+            onDrop={handleDrop}
+          >
+            <input
+              type="file"
+              multiple
+              disabled={deployed || files.length >= MAX_FILES}
+              onChange={(event) => {
+                addFiles(Array.from(event.target.files || []))
+                event.currentTarget.value = ""
+              }}
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+            />
+            <div className="pointer-events-none text-center">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-black/[0.04]">
+                <Upload className="h-8 w-8 text-black/40" />
+              </div>
+              <div className="font-medium">Drop files here</div>
+              <div className="mt-1 text-sm text-black/50">
+                {files.length}/{MAX_FILES} selected, 50MB max per file
+              </div>
             </div>
-            <h2 className="text-xl font-medium mb-2">Files Deployed!</h2>
-            <p className="text-sm text-black/50">
-              Your files are now stored with encrypted access rules on-chain.
+          </div>
+
+          <div className="rounded-2xl border border-black/[0.07] bg-white">
+            <div className="flex items-center justify-between border-b border-black/[0.06] px-5 py-4">
+              <div>
+                <h2 className="font-medium">Files</h2>
+                <p className="text-xs text-black/45">{uploadProgress}% uploaded to IPFS</p>
+              </div>
+              {files.length > 0 && !deployed && (
+                <button onClick={() => setFiles([])} className="text-xs text-black/45 hover:text-black">
+                  Clear
+                </button>
+              )}
+            </div>
+            {files.length === 0 ? (
+              <div className="p-12 text-center text-sm text-black/40">Selected files will appear here.</div>
+            ) : (
+              <div className="divide-y divide-black/[0.05]">
+                {files.map((file) => (
+                  <div key={file.id} className="flex items-center gap-4 px-5 py-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-black/[0.04]">
+                      <FileText className="h-6 w-6 text-black/40" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">{file.name}</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-black/45">
+                        <span>{file.sizeLabel}</span>
+                        {file.isEncrypted && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">AES-256</span>}
+                        {file.previewHash && <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">Preview</span>}
+                      </div>
+                    </div>
+                    {file.uploading && <Loader2 className="h-5 w-5 animate-spin text-black/35" />}
+                    {file.uploaded && <CheckCircle2 className="h-5 w-5 text-emerald-600" />}
+                    {file.error && <AlertCircle className="h-5 w-5 text-red-500" />}
+                    {!deployed && (
+                      <button onClick={() => removeFile(file.id)} className="rounded-lg p-2 hover:bg-black/[0.04]">
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <aside className="space-y-4">
+          <div className="rounded-2xl border border-black/[0.07] bg-white p-5">
+            <h2 className="font-medium">Access Rules</h2>
+            <p className="mt-1 text-xs text-black/45">Applied to every file in this batch.</p>
+
+            <div className="mt-5 space-y-4">
+              <div>
+                <label className="mb-2 flex items-center gap-2 text-sm font-medium">
+                  <Lock className="h-4 w-4 text-black/40" />
+                  Price
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.0001"
+                    value={accessRules.price}
+                    onChange={(event) => setAccessRules({ ...accessRules, price: event.target.value })}
+                    className="w-full rounded-xl border border-black/[0.1] bg-black/[0.02] px-4 py-3 pr-14 text-sm"
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-black/40">ETH</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-2 flex items-center gap-2 text-sm font-medium">
+                  <Key className="h-4 w-4 text-black/40" />
+                  Access Code
+                </label>
+                <div className="relative">
+                  <input
+                    type={showAccessCode ? "text" : "password"}
+                    value={accessRules.accessCode}
+                    onChange={(event) => setAccessRules({ ...accessRules, accessCode: event.target.value })}
+                    placeholder="Optional PIN"
+                    className="w-full rounded-xl border border-black/[0.1] bg-black/[0.02] px-4 py-3 pr-11 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAccessCode((value) => !value)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-black/35 hover:text-black"
+                  >
+                    <Eye className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-2 flex items-center gap-2 text-sm font-medium">
+                    <Download className="h-4 w-4 text-black/40" />
+                    Downloads
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={accessRules.maxDownloads}
+                    onChange={(event) => setAccessRules({ ...accessRules, maxDownloads: event.target.value })}
+                    className="w-full rounded-xl border border-black/[0.1] bg-black/[0.02] px-4 py-3 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="mb-2 flex items-center gap-2 text-sm font-medium">
+                    <Clock className="h-4 w-4 text-black/40" />
+                    Expiry
+                  </label>
+                  <select
+                    value={accessRules.expiryDays}
+                    onChange={(event) => setAccessRules({ ...accessRules, expiryDays: event.target.value })}
+                    className="w-full rounded-xl border border-black/[0.1] bg-black/[0.02] px-4 py-3 text-sm"
+                  >
+                    <option value="1">24h</option>
+                    <option value="7">7d</option>
+                    <option value="30">30d</option>
+                    <option value="0">Never</option>
+                  </select>
+                </div>
+              </div>
+
+              <label className="flex items-center justify-between rounded-xl border border-black/[0.07] bg-black/[0.02] p-4">
+                <span>
+                  <span className="block text-sm font-medium">Encrypt file contents</span>
+                  <span className="text-xs text-black/45">Keys stay in the share link fragment, not on-chain.</span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={accessRules.encryptContent}
+                  disabled={files.length > 0}
+                  onChange={(event) => setAccessRules({ ...accessRules, encryptContent: event.target.checked })}
+                  className="h-5 w-5"
+                />
+              </label>
+
+              <label className="flex items-center justify-between rounded-xl border border-black/[0.07] bg-black/[0.02] p-4">
+                <span>
+                  <span className="block text-sm font-medium">Public image/PDF preview</span>
+                  <span className="text-xs text-black/45">Preview files are visible before access.</span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={accessRules.enablePreview}
+                  disabled={files.length > 0}
+                  onChange={(event) => setAccessRules({ ...accessRules, enablePreview: event.target.checked })}
+                  className="h-5 w-5"
+                />
+              </label>
+
+              <label className="flex items-center justify-between rounded-xl border border-black/[0.07] bg-black/[0.02] p-4">
+                <span>
+                  <span className="block text-sm font-medium">Anonymous share mode</span>
+                  <span className="text-xs text-black/45">Public owner lookups return a zero address for this upload.</span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={anonymousMode}
+                  disabled={deployed}
+                  onChange={(event) => setAnonymousMode(event.target.checked)}
+                  className="h-5 w-5"
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-800">
+            <div className="mb-1 flex items-center gap-2 font-medium">
+              <Shield className="h-4 w-4" />
+              Wave 3/4 Ready
+            </div>
+            <p className="text-xs text-emerald-700/80">
+              Batch upload, expiry, preview metadata, folders, webhooks, and batch download accounting are now supported on-chain.
+              {anonymousMode ? " Anonymous share mode is enabled for this batch." : ""}
             </p>
           </div>
 
+          {writeError && (
+            <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
+              <div className="mb-2 flex items-center gap-2 font-medium">
+                <AlertCircle className="h-4 w-4" />
+                Transaction failed
+              </div>
+              <p className="break-words text-xs text-red-600/85">{writeError.message}</p>
+            </div>
+          )}
+
+          <button
+            onClick={handleDeploy}
+            disabled={deploying || isPending || isWaiting || readyFiles.length === 0 || readyFiles.length !== files.length}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#111] px-5 py-4 text-sm font-medium text-white transition-colors hover:bg-[#333] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {wrongNetwork ? (
+              isSwitchingChain ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Switching...
+                </>
+              ) : (
+                <>
+                  <Zap className="h-4 w-4" />
+                  Switch to Sepolia
+                </>
+              )
+            ) : isPending || isWaiting || deploying ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {isPending ? "Confirm in wallet..." : "Writing on-chain..."}
+              </>
+            ) : (
+              <>
+                <Lock className="h-4 w-4" />
+                Register {readyFiles.length || files.length} file(s)
+              </>
+            )}
+          </button>
+        </aside>
+      </div>
+
+      {deployed && fileIds.length > 0 && (
+        <div className="rounded-2xl border border-black/[0.07] bg-white p-6">
+          <div className="mb-5 flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50">
+              <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-medium">Batch registered on-chain</h2>
+              <p className="text-sm text-black/50">Copy the secret links now. Encrypted file keys are included only in the URL fragment.</p>
+            </div>
+          </div>
+
           <div className="space-y-3">
-            <h3 className="text-sm font-medium">Share Links</h3>
             {fileIds.map((fileId, index) => {
-              const fileName = uploadedFiles[index]?.name || `File #${fileId.toString()}`
-              const linkHash = Math.abs(Array.from(fileId.toString()).reduce((acc, c, i) => {
-                return acc + c.charCodeAt(0) * (i + 1)
-              }, 0)).toString(16).padStart(8, '0').toUpperCase()
-              const shareUrl = `${baseUrl}/share/${fileId.toString()}?h=${linkHash}`
+              const file = readyFiles[index]
+              const shareUrl = buildShareUrl(baseUrl, fileId.toString(), {
+                fileName: file.name,
+                mimeType: file.mimeType,
+                ipfsHash: file.ipfsHash || "",
+                encrypted: file.isEncrypted,
+                encryptionKey: file.encryptionKey || undefined,
+                encryptionIv: file.encryptionIv || undefined,
+                anonymousUpload: anonymousMode,
+              })
+
               return (
-                <div key={fileId.toString()} className="flex items-center gap-2 p-3 bg-black/[0.02] rounded-lg">
-                  <FileText className="w-4 h-4 text-black/40 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm truncate">{fileName}</div>
-                    <div className="text-xs text-black/40 font-mono">
-                      {shareUrl}
-                    </div>
+                <div key={fileId.toString()} className="flex flex-col gap-3 rounded-xl bg-black/[0.02] p-4 sm:flex-row sm:items-center">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">{file.name}</div>
+                    <div className="truncate font-mono text-xs text-black/40">{shareUrl}</div>
                   </div>
-                  <button
-                    onClick={() => setQrModalFile({ fileId, fileName })}
-                    className="px-3 py-1.5 bg-emerald-600 text-white text-xs rounded-lg shrink-0 flex items-center gap-1 hover:bg-emerald-700"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <rect x="3" y="3" width="7" height="7" />
-                      <rect x="14" y="3" width="7" height="7" />
-                      <rect x="3" y="14" width="7" height="7" />
-                      <rect x="14" y="14" width="7" height="7" />
-                    </svg>
-                    QR
-                  </button>
-                  <button
-                    onClick={() => copyToClipboard(shareUrl)}
-                    className="px-3 py-1.5 bg-[#111] text-white text-xs rounded-lg shrink-0 flex items-center gap-1"
-                  >
-                    <Copy size={12} />
-                    Copy
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setQrModalFile({ fileId, file })}
+                      className="flex items-center gap-1.5 rounded-lg border border-black/[0.08] px-3 py-2 text-xs hover:bg-white"
+                    >
+                      <Link2 className="h-3.5 w-3.5" />
+                      QR
+                    </button>
+                    <button
+                      onClick={() => copyToClipboard(shareUrl)}
+                      className="flex items-center gap-1.5 rounded-lg bg-[#111] px-3 py-2 text-xs text-white"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      Copy
+                    </button>
+                  </div>
                 </div>
               )
             })}
           </div>
 
-          {qrModalFile && (
-            <QRModal
-              fileId={qrModalFile.fileId}
-              fileName={qrModalFile.fileName}
-              onClose={() => setQrModalFile(null)}
-            />
-          )}
-
-          {txHash && (
-            <div className="p-3 bg-black/[0.02] rounded-lg">
-              <div className="text-xs text-black/40 mb-1">Transaction</div>
-              <a
-                href={`https://sepolia.etherscan.io/tx/${txHash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-blue-600 hover:underline font-mono"
-              >
-                {txHash}
-              </a>
-            </div>
-          )}
-
-          <div className="flex gap-3">
-            <Link
-              href="/dashboard"
-              className="flex-1 py-3 text-center rounded-xl bg-[#111] text-white text-sm"
+          {receipt && (
+            <a
+              href={`https://sepolia.etherscan.io/tx/${receipt.transactionHash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-4 inline-flex text-xs text-blue-600 hover:underline"
             >
-              Dashboard
-            </Link>
-            <button
-              onClick={() => {
-                setFiles([])
-                setUploadedFiles([])
-                setFileIds([])
-                setDeployed(false)
-              }}
-              className="flex-1 py-3 text-center rounded-xl border border-black/[0.1] text-sm"
-            >
-              Upload More
-            </button>
-          </div>
+              View transaction on Etherscan
+            </a>
+          )}
         </div>
+      )}
+
+      {qrModalFile && (
+        <QRModal
+          url={buildShareUrl(baseUrl, qrModalFile.fileId.toString(), {
+            fileName: qrModalFile.file.name,
+            mimeType: qrModalFile.file.mimeType,
+            ipfsHash: qrModalFile.file.ipfsHash || "",
+            encrypted: qrModalFile.file.isEncrypted,
+            encryptionKey: qrModalFile.file.encryptionKey || undefined,
+            encryptionIv: qrModalFile.file.encryptionIv || undefined,
+            anonymousUpload: anonymousMode,
+          })}
+          fileName={qrModalFile.file.name}
+          onClose={() => setQrModalFile(null)}
+        />
       )}
     </div>
   )
 }
 
-// Copy icon helper
-function Copy({ size = 16 }: { size?: number }) {
+function QRModal({ url, fileName, onClose }: { url: string; fileName: string; onClose: () => void }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-    </svg>
-  )
-}
-
-// QR Code modal component
-function QRModal({ fileId, fileName, onClose }: { fileId: bigint; fileName: string; onClose: () => void }) {
-  const [mounted, setMounted] = useState(false)
-  const [shareUrl, setShareUrl] = useState('')
-  const [urlHash, setUrlHash] = useState('')
-
-  useEffect(() => {
-    setMounted(true)
-  }, [])
-
-  useEffect(() => {
-    if (mounted) {
-      const base = `${window.location.origin}/share/${fileId.toString()}`
-      setShareUrl(base)
-      // Generate hash from file ID only (stable, no hydration issues)
-      const hash = Math.abs(Array.from(fileId.toString()).reduce((acc, c, i) => {
-        return acc + c.charCodeAt(0) * (i + 1)
-      }, 0)).toString(16).padStart(8, '0').toUpperCase()
-      setUrlHash(hash)
-    }
-  }, [fileId, mounted])
-
-  const hashedUrl = shareUrl ? `${shareUrl}?h=${urlHash}` : ''
-
-  if (!mounted) {
-    return null
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4" onClick={e => e.stopPropagation()}>
-        <div className="text-center mb-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={onClose}>
+      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="mb-4 text-center">
           <h3 className="text-lg font-medium">Scan to Access</h3>
-          <p className="text-sm text-black/50 truncate">{fileName}</p>
+          <p className="truncate text-sm text-black/50">{fileName}</p>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-black/[0.1] flex items-center justify-center mb-4">
-          <QRCodeSVG value={hashedUrl} size={180} level="H" />
+        <div className="mb-4 flex items-center justify-center rounded-xl border border-black/[0.08] bg-white p-4">
+          <QRCodeSVG value={url} size={190} level="H" />
         </div>
-        <div className="text-center">
-          <div className="text-xs text-black/40 mb-1">Secure Link ID</div>
-          <div className="text-sm font-mono text-black/60">{urlHash}</div>
-        </div>
-        <button
-          onClick={onClose}
-          className="w-full mt-4 py-3 rounded-xl bg-[#111] text-white text-sm"
-        >
+        <button onClick={onClose} className="w-full rounded-xl bg-[#111] py-3 text-sm text-white">
           Close
         </button>
       </div>

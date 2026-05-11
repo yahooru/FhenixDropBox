@@ -1,8 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { useAccount } from "wagmi"
+import { useAccount, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { useTheme } from "next-themes"
 import {
   Shield,
@@ -17,77 +17,55 @@ import {
   Lock,
   Save,
   ArrowLeft,
-  Sparkles,
   Zap,
-  LockKeyhole,
   Eye,
   EyeOff,
+  BarChart3,
+  Activity,
+  UserRoundX,
 } from "lucide-react"
-import { CONTRACT_ADDRESS } from "@/lib/fhenix"
-
-interface FeatureInfo {
-  wave: string
-  label: string
-}
+import {
+  CONTRACT_ADDRESS,
+  FHENIX_DROPBOX_ABI,
+  formatNativePrice,
+  hashWebhookEndpoint,
+  tupleToWebhookInfo,
+  type WebhookInfo,
+} from "@/lib/fhenix"
+import { DEFAULT_PREFERENCES, getPreferences, savePreferences, type AppPreferences } from "@/lib/preferences"
 
 interface SettingRowProps {
   title: string
   description: string
   enabled: boolean
   onToggle: () => void
-  featureInfo?: FeatureInfo
   isLast?: boolean
 }
 
-const ComingSoonBadge = ({ wave, label }: FeatureInfo) => (
-  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 text-amber-700 text-[10px] font-medium">
-    <Sparkles className="w-2.5 h-2.5" />
-    {wave} {label}
-  </span>
-)
-
-function SettingRow({ title, description, enabled, onToggle, featureInfo, isLast }: SettingRowProps) {
-  const [hovered, setHovered] = useState(false)
-  const isLocked = !!featureInfo
-
+function SettingRow({ title, description, enabled, onToggle, isLast }: SettingRowProps) {
   return (
     <>
       <div
-        className={`flex items-center justify-between py-4 px-1 ${isLocked ? "opacity-60" : ""}`}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
+        className="flex items-center justify-between py-4 px-1"
       >
         <div className="flex-1 pr-4">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-sm font-medium">{title}</span>
-            {featureInfo && <ComingSoonBadge wave={featureInfo.wave} label={featureInfo.label} />}
           </div>
           <div className="text-xs text-black/50">{description}</div>
-          {isLocked && hovered && (
-            <div className="mt-2 flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2 border border-amber-100">
-              <Zap className="w-3 h-3 flex-shrink-0" />
-              <span>This feature is coming in <strong>{featureInfo.wave}</strong>. Stay tuned!</span>
-            </div>
-          )}
         </div>
-        {isLocked ? (
-          <div className="w-12 h-7 rounded-full bg-black/[0.08] flex items-center justify-center">
-            <LockKeyhole className="w-3.5 h-3.5 text-black/30" />
-          </div>
-        ) : (
-          <button
-            onClick={onToggle}
-            className={`w-12 h-7 rounded-full relative transition-all duration-200 flex-shrink-0 ${
-              enabled ? "bg-[#111]" : "bg-black/[0.1]"
+        <button
+          onClick={onToggle}
+          className={`w-12 h-7 rounded-full relative transition-all duration-200 flex-shrink-0 ${
+            enabled ? "bg-[#111]" : "bg-black/[0.1]"
+          }`}
+        >
+          <span
+            className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-all duration-200 ${
+              enabled ? "left-[calc(100%-24px)]" : "left-1"
             }`}
-          >
-            <span
-              className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-all duration-200 ${
-                enabled ? "left-[calc(100%-24px)]" : "left-1"
-              }`}
-            />
-          </button>
-        )}
+          />
+        </button>
       </div>
       {!isLast && <div className="h-px bg-black/[0.05]" />}
     </>
@@ -156,18 +134,55 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [activeTab, setActiveTab] = useState("privacy")
+  const [webhookUrl, setWebhookUrl] = useState("")
+  const [webhookLabel, setWebhookLabel] = useState("")
+  const [webhookNotice, setWebhookNotice] = useState<string | null>(null)
+  const { writeContract, data: webhookTxHash, isPending: webhookPending } = useWriteContract()
+  const { isLoading: webhookWaiting, isSuccess: webhookSuccess } = useWaitForTransactionReceipt({ hash: webhookTxHash })
 
-  const [settings, setSettings] = useState({
-    hideFiles: true,
-    privateAnalytics: false,
-    anonymousUploads: false,
-    downloadAlerts: true,
-    purchaseAlerts: true,
-    weeklySummary: false,
-    defaultPrice: "0",
-    defaultDownloads: "100",
-    defaultExpiry: "365",
+  const { data: webhookIds, refetch: refetchWebhookIds } = useReadContract({
+    address: CONTRACT_ADDRESS as `0x${string}`,
+    abi: FHENIX_DROPBOX_ABI,
+    functionName: "getMyWebhooks",
+    query: { enabled: isConnected },
   })
+
+  const webhookIdList = useMemo(() => (
+    Array.isArray(webhookIds) ? webhookIds.map((id) => id.toString()) : []
+  ), [webhookIds])
+
+  const webhookContracts = useMemo(() => webhookIdList.map((id) => ({
+    address: CONTRACT_ADDRESS as `0x${string}`,
+    abi: FHENIX_DROPBOX_ABI,
+    functionName: "webhooks",
+    args: [BigInt(id)],
+  })), [webhookIdList])
+
+  const { data: webhookReads, refetch: refetchWebhookReads } = useReadContracts({
+    contracts: webhookContracts,
+    query: { enabled: isConnected && webhookContracts.length > 0 },
+  })
+
+  const webhooks = useMemo(() => (
+    (webhookReads || [])
+      .map((result) => tupleToWebhookInfo(result.result))
+      .filter(Boolean) as WebhookInfo[]
+  ), [webhookReads])
+
+  const [settings, setSettings] = useState<AppPreferences>(DEFAULT_PREFERENCES)
+
+  const { data: stats } = useReadContract({
+    address: CONTRACT_ADDRESS as `0x${string}`,
+    abi: FHENIX_DROPBOX_ABI,
+    functionName: "getStats",
+    query: { enabled: isConnected },
+  })
+
+  const statTuple = Array.isArray(stats) ? stats : [0n, 0n, 0n, 0n]
+  const totalFiles = Number(statTuple[0] || 0n)
+  const totalDownloads = Number(statTuple[1] || 0n)
+  const totalVolume = BigInt(statTuple[2] || 0n)
+  const myFileCount = Number(statTuple[3] || 0n)
 
   const handleCopyAddress = () => {
     if (address) {
@@ -185,20 +200,53 @@ export default function SettingsPage() {
 
   const handleSave = async () => {
     setSaving(true)
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    savePreferences(address, settings)
+    await new Promise((resolve) => setTimeout(resolve, 250))
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
 
-  const updateSetting = (key: string, value: boolean | string) => {
+  const updateSetting = (key: keyof AppPreferences, value: boolean | string) => {
     setSettings((prev) => ({ ...prev, [key]: value }))
+  }
+
+  useEffect(() => {
+    if (!address) return
+    setSettings(getPreferences(address))
+  }, [address])
+
+  useEffect(() => {
+    if (!webhookSuccess) return
+    setWebhookNotice("Webhook registry updated on-chain.")
+    void refetchWebhookIds()
+    void refetchWebhookReads()
+    setTimeout(() => setWebhookNotice(null), 2200)
+  }, [refetchWebhookIds, refetchWebhookReads, webhookSuccess])
+
+  const handleRegisterWebhook = () => {
+    if (!webhookUrl.trim()) return
+
+    writeContract({
+      address: CONTRACT_ADDRESS as `0x${string}`,
+      abi: FHENIX_DROPBOX_ABI,
+      functionName: "registerWebhook",
+      args: [
+        hashWebhookEndpoint(webhookUrl),
+        webhookLabel.trim() || "Production webhook",
+        7,
+      ],
+    })
+
+    setWebhookUrl("")
+    setWebhookLabel("")
   }
 
   const tabs = [
     { id: "privacy", label: "Privacy", icon: Shield },
     { id: "defaults", label: "Defaults", icon: Key },
     { id: "notifications", label: "Notifications", icon: Bell },
+    { id: "webhooks", label: "Webhooks", icon: Zap },
     { id: "appearance", label: "Appearance", icon: Moon },
   ]
 
@@ -372,23 +420,57 @@ export default function SettingsPage() {
             />
             <SettingRow
               title="Private Analytics"
-              description="Track downloads without exposing your data on-chain"
+              description="Show local-only analytics from contract reads without adding external trackers"
               enabled={settings.privateAnalytics}
               onToggle={() => updateSetting("privateAnalytics", !settings.privateAnalytics)}
-              featureInfo={{ wave: "Wave 3", label: "Coming Soon" }}
             />
             <SettingRow
               title="Anonymous Uploads"
-              description="Upload files without linking to your wallet address"
+              description="New uploads hide the public owner lookup and generate anonymous share links"
               enabled={settings.anonymousUploads}
               onToggle={() => updateSetting("anonymousUploads", !settings.anonymousUploads)}
-              featureInfo={{ wave: "Wave 3", label: "Coming Soon" }}
               isLast  
             />
           </div>
+          {settings.privateAnalytics && (
+            <div className="mx-6 mb-5 grid gap-3 rounded-2xl border border-black/[0.06] bg-black/[0.02] p-4 sm:grid-cols-4">
+              <div className="rounded-xl bg-white p-4">
+                <div className="mb-2 flex items-center gap-2 text-xs text-black/40">
+                  <BarChart3 className="h-3.5 w-3.5" />
+                  My Files
+                </div>
+                <div className="text-2xl font-semibold">{myFileCount}</div>
+              </div>
+              <div className="rounded-xl bg-white p-4">
+                <div className="mb-2 flex items-center gap-2 text-xs text-black/40">
+                  <Activity className="h-3.5 w-3.5" />
+                  Downloads
+                </div>
+                <div className="text-2xl font-semibold">{totalDownloads}</div>
+              </div>
+              <div className="rounded-xl bg-white p-4">
+                <div className="mb-2 flex items-center gap-2 text-xs text-black/40">
+                  <Shield className="h-3.5 w-3.5" />
+                  Volume
+                </div>
+                <div className="text-2xl font-semibold">{formatNativePrice(totalVolume)} ETH</div>
+              </div>
+              <div className="rounded-xl bg-white p-4">
+                <div className="mb-2 flex items-center gap-2 text-xs text-black/40">
+                  <Lock className="h-3.5 w-3.5" />
+                  Platform Files
+                </div>
+                <div className="text-2xl font-semibold">{totalFiles}</div>
+              </div>
+              <div className="sm:col-span-4 flex items-start gap-2 rounded-xl bg-white px-4 py-3 text-xs text-black/45">
+                <UserRoundX className="mt-0.5 h-3.5 w-3.5 shrink-0 text-black/35" />
+                Analytics are rendered in this browser from Sepolia reads. Anonymous mode hides owner lookup results from the app contract API, while the originating network transaction remains visible on public explorers.
+              </div>
+            </div>
+          )}
           <div className="px-6 py-3 bg-emerald-50/60 border-t border-emerald-100/50 flex items-center gap-2">
             <Lock className="w-3.5 h-3.5 text-emerald-600" />
-            <span className="text-xs text-emerald-700">All privacy settings are encrypted on-chain using FHE</span>
+            <span className="text-xs text-emerald-700">Wave 3 privacy controls are active. Save settings to apply defaults to new uploads.</span>
           </div>
         </div>
       )}
@@ -416,7 +498,7 @@ export default function SettingsPage() {
                   className="w-full px-4 py-2.5 rounded-xl border border-black/[0.1] bg-black/[0.02] text-sm focus:outline-none focus:border-black/[0.25] transition-colors pr-16"
                 />
                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-black/40 font-medium">
-                  USDC
+                  ETH
                 </span>
               </div>
             </div>
@@ -435,7 +517,7 @@ export default function SettingsPage() {
             <div>
               <label className="block text-sm font-medium mb-2">Default Expiry (Days)</label>
               <div className="flex gap-2">
-                {["7", "30", "90", "365"].map((days) => (
+                {["1", "7", "30", "0"].map((days) => (
                   <button
                     key={days}
                     onClick={() => updateSetting("defaultExpiry", days)}
@@ -445,19 +527,21 @@ export default function SettingsPage() {
                         : "bg-black/[0.02] text-black/60 border-black/[0.08] hover:border-black/[0.15]"
                     }`}
                   >
-                    {days === "7" ? "7d" : days === "30" ? "30d" : days === "90" ? "90d" : "365d"}
+                    {days === "1" ? "24h" : days === "7" ? "7d" : days === "30" ? "30d" : "Never"}
                   </button>
                 ))}
               </div>
               <p className="text-xs text-black/40 mt-2">
                 Links expire after{" "}
-                <span className="font-medium text-black/60">{settings.defaultExpiry} days</span>
+                <span className="font-medium text-black/60">
+                  {settings.defaultExpiry === "0" ? "no fixed period" : `${settings.defaultExpiry} day(s)`}
+                </span>
               </p>
             </div>
 
             <div className="flex items-center gap-2 text-xs text-emerald-600 bg-emerald-50/60 rounded-xl px-4 py-3 border border-emerald-100/50">
               <Lock className="w-3.5 h-3.5 flex-shrink-0" />
-              <span>All access rules are encrypted on-chain — prices, passwords & limits stay private</span>
+              <span>Defaults apply to on-chain access rules for price, access code hash, expiry, and limits</span>
             </div>
           </div>
         </div>
@@ -476,32 +560,103 @@ export default function SettingsPage() {
           <div className="px-6 py-2">
             <SettingRow
               title="Download Alerts"
-              description="Get notified when someone downloads your file"
+              description="Keep browser preferences ready for webhook-backed download alerts"
               enabled={settings.downloadAlerts}
               onToggle={() => updateSetting("downloadAlerts", !settings.downloadAlerts)}
-              featureInfo={{ wave: "Wave 3", label: "Coming Soon" }}
             />
             <SettingRow
               title="New Purchase Alerts"
-              description="Get notified of new payments to your files"
+              description="Track paid access events through your registered webhook endpoint"
               enabled={settings.purchaseAlerts}
               onToggle={() => updateSetting("purchaseAlerts", !settings.purchaseAlerts)}
-              featureInfo={{ wave: "Wave 3", label: "Coming Soon" }}
             />
             <SettingRow
               title="Weekly Summary"
-              description="Receive a weekly report of your file activity"
+              description="Save a local summary preference for analytics exports"
               enabled={settings.weeklySummary}
               onToggle={() => updateSetting("weeklySummary", !settings.weeklySummary)}
-              featureInfo={{ wave: "Wave 3", label: "Coming Soon" }}
               isLast
             />
           </div>
-          <div className="px-6 py-3 bg-amber-50/60 border-t border-amber-100/50 flex items-center gap-2">
-            <Zap className="w-3.5 h-3.5 text-amber-600" />
-            <span className="text-xs text-amber-700">
-              Notifications are planned for Wave 3 — wallet-based alerts coming soon
+          <div className="px-6 py-3 bg-emerald-50/60 border-t border-emerald-100/50 flex items-center gap-2">
+            <Zap className="w-3.5 h-3.5 text-emerald-600" />
+            <span className="text-xs text-emerald-700">
+              Notification preferences are saved locally. Register a webhook for production event delivery.
             </span>
+          </div>
+        </div>
+      )}
+
+      {/* Webhooks Tab */}
+      {activeTab === "webhooks" && (
+        <div className="bg-white rounded-2xl border border-black/[0.07] overflow-hidden">
+          <div className="px-6 py-4 border-b border-black/[0.06]">
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4" />
+              <h2 className="font-medium">Developer Webhooks</h2>
+            </div>
+            <p className="text-xs text-black/40 mt-1">
+              Register hashed endpoints on-chain for upload, access, and download event consumers.
+            </p>
+          </div>
+          <div className="p-6 space-y-5">
+            {webhookNotice && (
+              <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 rounded-xl px-4 py-3 border border-emerald-100">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                {webhookNotice}
+              </div>
+            )}
+
+            <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+              <input
+                value={webhookLabel}
+                onChange={(event) => setWebhookLabel(event.target.value)}
+                placeholder="Webhook label"
+                className="rounded-xl border border-black/[0.1] bg-black/[0.02] px-4 py-3 text-sm"
+              />
+              <input
+                value={webhookUrl}
+                onChange={(event) => setWebhookUrl(event.target.value)}
+                placeholder="https://example.com/fhenixdropbox"
+                className="rounded-xl border border-black/[0.1] bg-black/[0.02] px-4 py-3 text-sm"
+              />
+              <button
+                onClick={handleRegisterWebhook}
+                disabled={!webhookUrl.trim() || webhookPending || webhookWaiting}
+                className="rounded-xl bg-[#111] px-5 py-3 text-sm font-medium text-white disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {webhookPending || webhookWaiting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                Register
+              </button>
+            </div>
+
+            <div className="rounded-xl bg-black/[0.02] border border-black/[0.05] p-4 text-xs text-black/45">
+              Raw endpoint URLs are not stored on-chain. The contract stores a `bytes32` hash plus an event mask so external indexers can match and deliver events.
+            </div>
+
+            <div className="space-y-2">
+              {webhooks.length === 0 ? (
+                <div className="rounded-xl border border-black/[0.06] p-5 text-center text-sm text-black/40">
+                  No webhooks registered yet.
+                </div>
+              ) : (
+                webhooks.map((hook) => (
+                  <div key={hook.id.toString()} className="rounded-xl border border-black/[0.06] p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-medium">{hook.label || `Webhook #${hook.id.toString()}`}</div>
+                        <div className="text-xs text-black/40 font-mono mt-1">
+                          {hook.endpointHash.slice(0, 12)}...{hook.endpointHash.slice(-8)}
+                        </div>
+                      </div>
+                      <span className={`text-xs px-2 py-1 rounded ${hook.isActive ? "bg-emerald-50 text-emerald-700" : "bg-black/[0.05] text-black/40"}`}>
+                        {hook.isActive ? "Active" : "Paused"}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -590,7 +745,7 @@ export default function SettingsPage() {
 
       {/* Footer */}
       <div className="text-center text-xs text-black/30 pb-4">
-        FhenixDropBox Settings &middot; Powered by FHE encryption
+        FhenixDropBox Settings &middot; Encrypted IPFS delivery and Sepolia access control
       </div>
     </div>
   )

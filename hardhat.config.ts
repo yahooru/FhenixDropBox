@@ -10,12 +10,12 @@ const ARBITRUM_SEPOLIA_RPC_URL = process.env.ARBITRUM_SEPOLIA_RPC_URL || "https:
 const PRIVATE_KEY = process.env.PRIVATE_KEY || "";
 const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || "";
 
-console.log("Config loaded - Private key present:", PRIVATE_KEY ? "Yes" : "No");
-
 const config: HardhatUserConfig = {
   solidity: {
     version: "0.8.24",
     settings: {
+      evmVersion: "cancun",
+      viaIR: true,
       optimizer: {
         enabled: true,
         runs: 200

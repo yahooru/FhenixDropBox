@@ -1,227 +1,142 @@
-# FhenixDropBox - Privacy-First Decentralized File Sharing
+# FhenixDropBox
 
-![FhenixDropBox Logo](asserts/Open_Cardboard_Box_PNG_Clip_Art-1284.png)
+Privacy-first decentralized file sharing for the Fhenix ecosystem.
 
-live url - https://fhenixdropbox.vercel.app
+FhenixDropBox lets a user encrypt files in the browser, pin the encrypted payload to IPFS, register access rules on Sepolia, and share a secret link that keeps the file key off-chain. The app is built as a working Wave 1-4 product, with the remaining confidential-computing and automation work documented under Wave 5.
 
-A privacy-first decentralized file sharing platform built on Fhenix with encrypted access control. Share files with complete privacy using Fully Homomorphic Encryption (FHE).
+Live app: https://fhenixdropbox.vercel.app
 
-## What is FhenixDropBox?
+## What It Does
 
-FhenixDropBox is a decentralized file sharing platform that keeps all sensitive data private on-chain:
-
-- **Encrypted Access Control**: Prices, passwords, download limits, and expiry times are hidden using Fhenix FHE
-- **Private Verification**: All access validations happen on encrypted data without exposure
-- **Decentralized Storage**: Files are encrypted locally and stored on IPFS
-- **Zero-Knowledge Proofs**: Password verification without revealing the actual password
-
-## Key Features (Available Now - Wave 1)
-
-- Lock icon with secret-based unlock for files
-- Eye-slash icon for hidden download counts and access logs
-- Shield icon for confidential payments
-- Clock icon for encrypted expiry times
-- Database icon for decentralized IPFS storage
-- Wallet connection with MetaMask and WalletConnect
-
-## How It Works
-
-### 1. Upload & Encrypt
-Select your file. It's encrypted locally on your device before uploading to IPFS.
-
-### 2. Set Access Rules
-Define price, password, expiry, and download limits. These are encrypted with Fhenix FHE.
-
-### 3. Get Secure Link
-Receive a private shareable link. All access conditions remain hidden on-chain.
-
-### 4. Private Verification
-When someone accesses the file, all validations happen on encrypted data.
-
-### 5. Secure Download
-Access granted? File is decrypted locally for the authorized user only.
-
-## Privacy Comparison
-
-### Traditional Web3 File Sharing
-- File prices are public
-- Access logs are visible
-- Passwords exposed
-- Download limits visible
-
-### FhenixDropBox
-- Prices encrypted with FHE
-- Access logs completely private
-- Passwords never exposed
-- Download limits hidden
-
-## Tech Stack
-
-- **Frontend**: Next.js 16, React 19, TypeScript
-- **Styling**: Tailwind CSS 4, Radix UI
-- **Wallet**: Wagmi v2, Viem, WalletConnect
-- **Blockchain**: Ethereum Sepolia (testnet)
-- **Storage**: IPFS (via Pinata)
-- **Smart Contracts**: Solidity, Hardhat, OpenZeppelin
+- Encrypts file contents locally with AES-GCM before upload.
+- Stores encrypted files and optional image/PDF previews on IPFS through Pinata.
+- Registers file metadata and access rules on the deployed Sepolia contract.
+- Supports native Sepolia ETH access payments with refund handling.
+- Supports access PIN hashes, expiry, max download limits, and download accounting.
+- Generates secret share links with the AES key and IV in the URL fragment.
+- Provides QR sharing, folder organization, batch upload, batch download, webhooks, private analytics, and anonymous share mode.
 
 ## Deployed Contract
 
-- **Network**: Ethereum Sepolia
-- **Contract Address**: `0x820D442CC6BB930307183926C7805212668C7Cff`
-- **RPC**: https://ethereum-sepolia.publicnode.com
+- Network: Ethereum Sepolia
+- Address: `0x4B41c506a718774b15aDd13703B61B4C7282f221`
+- Explorer: https://sepolia.etherscan.io/address/0x4B41c506a718774b15aDd13703B61B4C7282f221
 
- 
-## Development Roadmap
+## How It Works
 
-### Wave 1 - Available Now
-Core platform with essential privacy features:
-- Encrypted Access Rules (prices, passwords, limits hidden on-chain)
-- IPFS Storage (decentralized file storage)
-- Privacy Protection (no data exposed publicly)
-- File Upload with access control
-- Basic wallet connection
+1. Connect a wallet on Sepolia.
+2. Upload one or more files on `/upload`.
+3. The browser encrypts each file and sends only encrypted bytes to the server upload route.
+4. The server pins the encrypted payload to IPFS using server-side Pinata credentials.
+5. The app writes file rules to `FhenixDropBox.uploadFilesBatch`.
+6. The uploader copies a secret share link or QR code.
+7. A recipient opens `/share/[id]`, requests access on-chain, pays if required, and downloads.
+8. The browser decrypts the file locally using the secret fragment in the URL.
 
-### Wave 2 -  Avialable :
-  
-- ✅ File management page (/files)
-- ✅ Share page with on-chain verification
-- ✅ QR Code generation for sharing
-- ✅ Hashed secure share links
-- ✅ Download tracking on blockchain
-- ✅ Privacy Protection (no data exposed publicly)
-- ✅ AES-256 file content encryption
-- ✅ Smart contract deployment on Sepolia
+## Wave Status
 
-### Wave 3 -  
-File Preview (preview PDFs and images before purchase)
-Multi-File Upload (upload up to 10 files at once)
-Link Expiry (24h / 7d / 30d link expiration)
-Batch Downloads (download multiple files)
--Paymnet issue will be fixed 
+### Wave 1 - Core Sharing
 
-### Wave 4 -  
-Organization and developer tools:
-Folder Organization (organize files in folders)
-Webhooks (real-time event notifications)
-CDN Distribution (fast global file delivery)
+- Wallet connection.
+- Single-file upload.
+- Encrypted file delivery.
+- Sepolia contract deployment.
+- On-chain access rules.
 
-### Wave 5 
+### Wave 2 - Share And Download Flow
 
-Collaboration and monetization:
-- Team Collaboration (share folders with teams)
-- Advanced Permissions (granular access control)
-- Subscriptions (recurring payments)
-- Social Sharing (share to social platforms)
+- Public share pages.
+- QR codes.
+- Secret share links.
+- On-chain access checks.
+- On-chain download tracking.
+- Local AES decrypt and download.
 
-## Getting Started
+### Wave 3 - Rich File Rules
 
-### Prerequisites
+- Multi-file upload, up to 10 files per batch.
+- Public previews for images and PDFs.
+- 24h, 7d, 30d, or no-expiry links.
+- Native ETH payment and refund handling.
+- Batch download accounting.
+- Private analytics from contract reads.
+- Anonymous share mode for public owner lookups.
 
-- Node.js 18+
-- pnpm 8+
-- MetaMask or another Web3 wallet
-- Sepolia test ETH (for deployment)
+### Wave 4 - Organization And Developer Tools
 
-### Installation
+- Folder creation and file moves.
+- Webhook endpoint hash registry.
+- Event masks for upload, access, and download consumers.
+- IPFS gateway delivery.
+- Settings defaults for new uploads.
+- Production build wired to the latest deployed contract.
 
-```bash
-# Clone the repository
-cd frontend
+### Wave 5 - Final Items Still To Build
 
-# Install dependencies
-pnpm install
+These are not fully production-complete yet and are intentionally tracked for Wave 5:
 
-# Set up environment variables
-cp .env.example .env.local
-# Edit .env.local with your values
+- Real CoFHE encrypted access-rule storage using current Fhenix `@cofhe/sdk` and `@fhenixprotocol/cofhe-contracts` patterns.
+- Relayer or account-abstraction flow for stronger anonymous uploads. Current anonymous mode hides owner lookup in the app contract API, but the originating wallet transaction remains visible on public Sepolia explorers.
+- Webhook delivery worker. The contract stores hashed webhook endpoints and event masks today; a backend/indexer still needs to deliver events to user endpoints.
+- Team folders and shared folder permissions.
+- Recurring subscriptions and recurring access payments.
+- Production analytics indexer for historical charts beyond direct contract reads.
+- Contract verification and monitoring pipeline for main deployment environments.
+- Larger-file resumable uploads and dedicated gateway/CDN configuration.
+- Pinata credential rotation before public production launch, because the current test credentials were shared during development.
 
-# Start development server
-pnpm dev
-```
+## Environment
 
-### Environment Variables
+Create `.env.local` from `.env.example` and fill the values:
 
 ```env
-# WalletConnect Project ID
-NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_project_id
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_walletconnect_project_id
+NEXT_PUBLIC_CONTRACT_ADDRESS=0x4B41c506a718774b15aDd13703B61B4C7282f221
 
-# Contract Address
-NEXT_PUBLIC_CONTRACT_ADDRESS=0x820D442CC6BB930307183926C7805212668C7Cff
-
-# RPC URLs
 SEPOLIA_RPC_URL=https://ethereum-sepolia.publicnode.com
 ARBITRUM_SEPOLIA_RPC_URL=https://sepolia-rollup.arbitrum.io/rpc
+BASE_SEPOLIA_RPC_URL=https://sepolia.base.org
 
-# Pinata IPFS (for file uploads)
-NEXT_PUBLIC_PINATA_JWT=your_pinata_jwt
+PINATA_JWT=your_server_side_pinata_jwt
+PINATA_API_KEY=optional_pinata_api_key
+PINATA_API_SECRET=optional_pinata_api_secret
+PRIVATE_KEY=your_testnet_deploy_key
+ETHERSCAN_API_KEY=
 ```
 
-### Smart Contract Commands
+Pinata credentials must stay server-side. Do not expose them as `NEXT_PUBLIC_*` values. The upload route uses `PINATA_API_KEY` + `PINATA_API_SECRET` first and falls back to `PINATA_JWT`.
+
+## Commands
 
 ```bash
-# Compile contracts
-pnpm compile
-
-# Deploy to Sepolia
-pnpm deploy --network sepolia
-
-# Run tests
-pnpm test
+npm install
+npm run compile
+npm run test
+npx tsc --noEmit
+npm run build
+npm run dev
 ```
 
-## Pages
+Deploy to Sepolia:
 
-| Route | Description |
-|-------|-------------|
-| `/` | Landing page with video hero and wallet connect |
-| `/dashboard` | Main dashboard with stats from blockchain |
-| `/upload` | Upload files with encrypted access rules |
-| `/files` | Manage uploaded files |
-| `/share/[id]` | Public share page with on-chain verification |
-| `/settings` | Privacy settings and preferences |
+```bash
+npm run deploy:sepolia
+```
 
-## Smart Contract Functions
+## Routes
 
-### File Management
-- `uploadFile()` - Upload file with encrypted access rules
-- `requestAccess()` - Request access with payment
-- `downloadFile()` - Download after access verification
-- `verifyPassword()` - Verify password on encrypted data
+| Route | Purpose |
+| --- | --- |
+| `/` | Product landing page |
+| `/dashboard` | Wallet dashboard and contract stats |
+| `/upload` | Encrypt, upload, preview, and register files |
+| `/files` | Manage files, folders, QR links, anonymous mode, and batch downloads |
+| `/share/[id]` | Recipient access, payment, decrypt, and download flow |
+| `/settings` | Defaults, privacy controls, webhooks, and appearance |
 
-### Access Control
-- `getFileInfo()` - Get file details
-- `getAccessInfo()` - Get user's access status
-- `getMyFiles()` - Get files owned by caller
+## Notes
 
-### Owner Functions
-- `deactivateFile()` - Deactivate a file
-- `updateFileRules()` - Update access rules
-- `withdraw()` - Withdraw earnings
-
-## Use Cases
-
-- **Legal Documents**: Share sensitive legal files with clients securely
-- **Enterprise Data**: Distribute internal data without exposure
-- **Private Content**: Monetize content with confidential pricing
-
-## Resources
-
-- [Fhenix Documentation](https://cofhe-docs.fhenix.zone)
-- [Cofhe SDK](https://cofhe-docs.fhenix.zone/cofhejs)
-- [FHE Library](https://cofhe-docs.fhenix.zone/fhe-library)
-- [WalletConnect](https://cloud.walletconnect.com)
-
-## Get Test ETH
-
-To deploy contracts, you'll need Sepolia test ETH:
-
-- https://www.sepoliafaucet.com/
-- https://faucet.quicknode.com/ethereum/sepolia
-
-## License
-
-MIT
-
-## Author
-
-Built with Fhenix FHE Technology
+- The current production path is AES-encrypted IPFS delivery plus Sepolia-enforced access rules.
+- File keys are not stored on-chain.
+- Access code values are not stored directly; the contract stores hashes.
+- The Wave 5 CoFHE work is the final step for confidential on-chain rule storage.

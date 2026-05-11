@@ -2,9 +2,9 @@
 
 import { useAccount, useReadContract } from "wagmi"
 import Link from "next/link"
-import { Upload, FolderOpen, Share2, Download, Lock, TrendingUp, FileText, ArrowRight, ArrowLeft, Settings, ExternalLink, Plus, Clock, Eye, Shield, Zap } from "lucide-react"
+import { Upload, FolderOpen, Share2, Download, Lock, TrendingUp, FileText, ArrowRight, ArrowLeft, Settings, ExternalLink, Plus, Clock, Eye, EyeOff, Shield, Zap } from "lucide-react"
 import { useState, useEffect } from "react"
-import { FHENIX_DROPBOX_ABI, CONTRACT_ADDRESS } from "@/lib/fhenix"
+import { FHENIX_DROPBOX_ABI, CONTRACT_ADDRESS, formatNativePrice } from "@/lib/fhenix"
 
 function StatCard({ icon: Icon, label, value, trend, href }: { icon: any; label: string; value: string; trend?: string; href?: string }) {
   return (
@@ -67,10 +67,11 @@ export default function DashboardPage() {
     query: { enabled: isConnected }
   })
 
-  const totalFiles = stats ? Number(stats[0]) : 0
-  const totalDownloads = stats ? Number(stats[1]) : 0
-  const totalVolume = stats ? Number(stats[2]) / 1e6 : 0
-  const myFileCount = stats ? Number(stats[3]) : 0
+  const statTuple = stats as readonly [bigint, bigint, bigint, bigint] | undefined
+  const totalFiles = statTuple ? Number(statTuple[0]) : 0
+  const totalDownloads = statTuple ? Number(statTuple[1]) : 0
+  const totalVolume = statTuple ? statTuple[2] : 0n
+  const myFileCount = statTuple ? Number(statTuple[3]) : 0
 
   if (!mounted) {
     return (
@@ -156,7 +157,7 @@ export default function DashboardPage() {
         <StatCard
           icon={Lock}
           label="Total Volume"
-          value={statsLoading ? "..." : `${totalVolume.toFixed(2)} USDC`}
+          value={statsLoading ? "..." : `${formatNativePrice(totalVolume)} ETH`}
         />
       </div>
 
@@ -189,16 +190,18 @@ export default function DashboardPage() {
       <div className="bg-white rounded-2xl border border-black/[0.07] overflow-hidden">
         <div className="p-6 border-b border-black/[0.06]">
           <h2 className="text-lg font-medium">Platform Features</h2>
-          <p className="text-sm text-black/50">Available and upcoming privacy features</p>
+          <p className="text-sm text-black/50">Production-ready privacy features live on Sepolia</p>
         </div>
         <div className="divide-y divide-black/[0.06]">
           {[
-            { icon: Lock, title: "Encrypted Access Rules", desc: "Prices, passwords, and limits hidden on-chain", available: true },
-            { icon: Download, title: "Multi-File Upload", desc: "Upload up to 10 files at once", available: true },
-            { icon: Shield, title: "Password Protection", desc: "SHA-256 hashed passwords", available: true },
-            { icon: Eye, title: "File Preview", desc: "Preview PDFs and images before purchase", available: false },
-            { icon: Clock, title: "Link Expiry", desc: "24h / 7d / 30d link expiration", available: false },
-            { icon: Zap, title: "Instant Access", desc: "Quick verification without delays", available: true },
+            { icon: Lock, title: "Access Rules", desc: "Native ETH price, PIN, limits, and expiry recorded on-chain", available: true },
+            { icon: Download, title: "Multi-File Upload", desc: "Register up to 10 files in one batch transaction", available: true },
+            { icon: Shield, title: "Encrypted Content", desc: "AES-256 file encryption with secret share links", available: true },
+            { icon: Eye, title: "File Preview", desc: "Public previews for PDFs and images before access", available: true },
+            { icon: Clock, title: "Link Expiry", desc: "24h, 7d, 30d, or never-expire links", available: true },
+            { icon: TrendingUp, title: "Private Analytics", desc: "Local analytics from contract reads without external tracking", available: true },
+            { icon: EyeOff, title: "Anonymous Share Mode", desc: "Owner lookup can be hidden behind a zero-address public view", available: true },
+            { icon: Zap, title: "Wave 4 Tools", desc: "Folders, webhook registry, CDN gateway delivery, and batch downloads", available: true },
           ].map((feature, i) => (
             <div key={i} className="flex items-center gap-4 p-4">
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${feature.available ? 'bg-emerald-50' : 'bg-black/[0.05]'}`}>
@@ -209,7 +212,7 @@ export default function DashboardPage() {
                 <div className="text-xs text-black/50">{feature.desc}</div>
               </div>
               <span className={`text-xs px-2 py-1 rounded ${feature.available ? 'bg-emerald-50 text-emerald-700' : 'bg-black/[0.05] text-black/40'}`}>
-                {feature.available ? 'Available' : 'Coming Soon'}
+                {feature.available ? 'Available' : 'Planned'}
               </span>
             </div>
           ))}
