@@ -233,7 +233,7 @@ export default function FhenixDropBoxPage() {
           <div className="flex gap-8 sm:gap-12">
             {[
               { value: "100%", label: "Private" },
-              { value: "FHE", label: "Encryption" },
+              { value: "AES", label: "Encryption" },
               { value: "0", label: "Data Exposed" },
             ].map((stat, i) => (
               <div
@@ -289,9 +289,9 @@ export default function FhenixDropBoxPage() {
                 <div className="w-10 h-10 rounded-xl border border-black/10 bg-white/60 flex items-center justify-center mb-6" style={{ backdropFilter: "blur(8px)" }}>
                   <Lock className="w-5 h-5 text-black/60" />
                 </div>
-                <h3 className="text-xl font-light mb-3">Encrypted Access Control</h3>
+                <h3 className="text-xl font-light mb-3">Private File Delivery</h3>
                 <p className="text-sm text-black/45 leading-relaxed max-w-sm">
-                  All file prices, passwords, and access rules are encrypted using Fhenix FHE. No one can see your data.
+                  Files are encrypted before IPFS upload. Access rules, folders, expiries, and download records are enforced on Sepolia.
                 </p>
               </div>
             </BentoCard>
@@ -310,7 +310,7 @@ export default function FhenixDropBoxPage() {
                 <EyeOff className="w-5 h-5 text-black/60" />
               </div>
               <h3 className="text-lg font-light mb-2">Private Downloads</h3>
-              <p className="text-sm text-black/45 leading-relaxed">Download counts and access logs are hidden. Complete privacy.</p>
+              <p className="text-sm text-black/45 leading-relaxed">Secret keys stay off-chain in share links while downloads are auditable on-chain.</p>
             </BentoCard>
 
             <BentoCard className="col-span-12 md:col-span-4 p-8 min-h-[200px]" delay={200}>
@@ -337,9 +337,9 @@ export default function FhenixDropBoxPage() {
           <div className="grid grid-cols-1 md:grid-cols-5 gap-3" onMouseMove={handleMouse}>
             {[
               { n: "01", title: "Upload", desc: "Select your file. It's encrypted locally before uploading to IPFS.", delay: 0 },
-              { n: "02", title: "Set Rules", desc: "Define access conditions. All are encrypted with Fhenix FHE.", delay: 80 },
-              { n: "03", title: "Share Link", desc: "Get a private shareable link. Access rules stay hidden.", delay: 140 },
-              { n: "04", title: "Verify", desc: "Access requests are verified on encrypted data.", delay: 200 },
+              { n: "02", title: "Set Rules", desc: "Define price, access code, expiry, and download limits.", delay: 80 },
+              { n: "03", title: "Share Link", desc: "Get a private link with the decryption key in the URL fragment.", delay: 140 },
+              { n: "04", title: "Verify", desc: "Access requests are verified by the Sepolia contract.", delay: 200 },
               { n: "05", title: "Download", desc: "Access granted? File is decrypted locally for the user only.", delay: 260 },
             ].map((step) => (
               <BentoCard key={step.n} className="relative overflow-hidden flex flex-col min-h-[280px]" delay={step.delay}>
@@ -361,11 +361,11 @@ export default function FhenixDropBoxPage() {
         <div className="max-w-5xl mx-auto">
           <div className="flex flex-wrap justify-center gap-4">
             {[
-              { icon: Lock, label: "Encrypted Prices" },
-              { icon: Key, label: "Hidden Passwords" },
-              { icon: EyeOff, label: "Private Access" },
-              { icon: Shield, label: "Confidential Payments" },
-              { icon: Clock, label: "Hidden Expiry" },
+              { icon: Lock, label: "Encrypted Files" },
+              { icon: Key, label: "Secret Links" },
+              { icon: EyeOff, label: "Private Delivery" },
+              { icon: Shield, label: "On-chain Payments" },
+              { icon: Clock, label: "Link Expiry" },
             ].map((badge, i) => (
               <div key={i} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-black/[0.03] border border-black/[0.06]">
                 <badge.icon className="w-4 h-4 text-black/50" />
@@ -458,7 +458,7 @@ export default function FhenixDropBoxPage() {
           </div>
         </div>
         <div className="max-w-6xl mx-auto mt-8 pt-6 border-t border-black/[0.04]">
-          <span className="text-xs text-black/20">2024 FhenixDropBox. Powered by Fhenix FHE.</span>
+          <span className="text-xs text-black/20">2026 FhenixDropBox. Built for the Fhenix ecosystem.</span>
         </div>
       </footer>
     </div>

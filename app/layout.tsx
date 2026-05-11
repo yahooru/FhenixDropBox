@@ -9,17 +9,13 @@ const _ibmPlexSans = IBM_Plex_Sans({ weight: ["300", "400", "500", "600"], subse
 
 export const metadata: Metadata = {
   title: 'FhenixDropBox - Privacy-First File Sharing',
-  description: 'Decentralized file sharing with encrypted access control. Upload files securely, set private access rules, and share with complete privacy using Fhenix FHE technology.',
+  description: 'Decentralized file sharing with AES-encrypted IPFS files, on-chain access rules, payments, folders, previews, and webhook registration.',
   keywords: ['Fhenix', 'privacy', 'file sharing', 'decentralized', 'FHE', 'encrypted', 'IPFS', 'blockchain'],
   authors: [{ name: 'FhenixDropBox' }],
   openGraph: {
     title: 'FhenixDropBox - Privacy-First File Sharing',
-    description: 'Decentralized file sharing with encrypted access control using Fhenix FHE technology.',
+    description: 'Decentralized file sharing with encrypted IPFS delivery and on-chain access control.',
     type: 'website',
-  },
-  icons: {
-    icon: '/favicon.png',
-    apple: '/apple-icon.png',
   },
 }
 

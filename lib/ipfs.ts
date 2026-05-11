@@ -170,8 +170,10 @@ export async function encryptAndUpload(
   // Create encrypted blob
   const encryptedBlob = new Blob([encrypted], { type: 'application/octet-stream' })
 
-  // Upload encrypted file to IPFS via API
-  const result = await uploadToIPFSServer(encrypted, `encrypted_${file.name}`)
+  // Upload encrypted file to IPFS via the client-safe API route.
+  const result = await uploadToIPFSViaAPI(
+    new File([encryptedBlob], `encrypted_${file.name}`, { type: 'application/octet-stream' })
+  )
 
   onProgress?.(100)
 

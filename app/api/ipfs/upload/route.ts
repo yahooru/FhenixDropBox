@@ -2,7 +2,7 @@
  * IPFS Upload API Route
  *
  * This is a server-side route that handles IPFS uploads securely.
- * The Pinata JWT is kept server-side only (PINATA_JWT env var).
+ * Pinata credentials are kept server-side only.
  *
  * POST /api/ipfs/upload
  * Content-Type: multipart/form-data
@@ -21,6 +21,27 @@ interface PinataResponse {
   Timestamp: string
 }
 
+function getPinataAuthHeaders(): Record<string, string> | null {
+  const apiKey = process.env.PINATA_API_KEY
+  const apiSecret = process.env.PINATA_API_SECRET
+
+  if (apiKey && apiSecret) {
+    return {
+      pinata_api_key: apiKey,
+      pinata_secret_api_key: apiSecret,
+    }
+  }
+
+  const pinataJWT = process.env.PINATA_JWT
+  if (pinataJWT) {
+    return {
+      Authorization: `Bearer ${pinataJWT}`,
+    }
+  }
+
+  return null
+}
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
@@ -33,25 +54,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get JWT from server-side env (NOT exposed to client!)
-    const pinataJWT = process.env.PINATA_JWT
+    const authHeaders = getPinataAuthHeaders()
 
-    if (!pinataJWT) {
-      // Fallback for development without Pinata
-      // In production, this should always be configured
-      console.warn('PINATA_JWT not configured, using mock response')
-
-      // Generate a realistic mock IPFS hash
-      const mockHash = 'Qm' + Array.from({ length: 44 }, () =>
-        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-          [Math.floor(Math.random() * 64)]
-      ).join('')
-
-      return NextResponse.json({
-        hash: mockHash,
-        size: file.size,
-        timestamp: new Date().toISOString()
-      })
+    if (!authHeaders) {
+      return NextResponse.json(
+        { error: 'Pinata credentials are not configured on the server' },
+        { status: 500 }
+      )
     }
 
     // Create form data for Pinata
@@ -74,9 +83,7 @@ export async function POST(request: NextRequest) {
     // Upload to Pinata
     const response = await fetch(`${PINATA_API_URL}/pinning/pinFileToIPFS`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${pinataJWT}`
-      },
+      headers: authHeaders,
       body: pinataFormData
     })
 

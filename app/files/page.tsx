@@ -1,359 +1,608 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
+import { useAccount, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import {
-  Search, FileText, MoreVertical, Download, Share2,
-  Trash2, ExternalLink, Lock, CheckCircle2, Loader2,
-  Plus, Eye, EyeOff, FolderPlus, Link2, QrCode, Copy,
-  Shield, Upload, Folder, TrendingUp, Calendar, Hash
+  AlertCircle,
+  CheckCircle2,
+  Copy,
+  Download,
+  EyeOff,
+  ExternalLink,
+  FileText,
+  Folder,
+  FolderPlus,
+  Hash,
+  Loader2,
+  Lock,
+  MoveRight,
+  QrCode,
+  Search,
+  Shield,
+  Upload,
 } from "lucide-react"
-import { FHENIX_DROPBOX_ABI, CONTRACT_ADDRESS, formatUSDC } from "@/lib/fhenix"
 import { QRCodeSVG } from "qrcode.react"
+import {
+  CONTRACT_ADDRESS,
+  FHENIX_DROPBOX_ABI,
+  formatDate,
+  formatNativePrice,
+  getRemainingDownloads,
+  tupleToFileInfo,
+  tupleToFileMetadata,
+  tupleToFilePrivacy,
+  tupleToFolderInfo,
+  type FilePrivacy,
+  type FileInfo,
+  type FileMetadata,
+  type FolderInfo,
+} from "@/lib/fhenix"
+import { decryptFile, formatFileSize, getFromIPFS } from "@/lib/ipfs"
+import { buildShareUrl, getAllLocalFileSecrets, type LocalFileSecret } from "@/lib/share-links"
+
+interface FileRecord {
+  id: string
+  info?: FileInfo
+  metadata?: FileMetadata
+  privacy?: FilePrivacy
+  secret?: LocalFileSecret
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  document.body.removeChild(anchor)
+  URL.revokeObjectURL(url)
+}
+
+async function downloadRecord(record: FileRecord) {
+  if (!record.info?.ipfsHash) throw new Error(`File ${record.id} is missing an IPFS hash`)
+
+  const name = record.secret?.fileName || record.metadata?.fileName || `file_${record.id}`
+  const type = record.secret?.mimeType || record.metadata?.mimeType || "application/octet-stream"
+  const blob = await getFromIPFS(record.info.ipfsHash)
+
+  if (record.info.contentEncrypted) {
+    if (!record.secret?.encryptionKey || !record.secret.encryptionIv) {
+      throw new Error(`${name} is encrypted and this browser does not have its key`)
+    }
+    const decrypted = await decryptFile(await blob.arrayBuffer(), record.secret.encryptionKey, record.secret.encryptionIv)
+    downloadBlob(new Blob([decrypted], { type }), name)
+    return
+  }
+
+  downloadBlob(blob, name)
+}
 
 export default function FilesPage() {
   const { address, isConnected } = useAccount()
+  const [mounted, setMounted] = useState(false)
+  const [baseUrl, setBaseUrl] = useState("")
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedFiles, setSelectedFiles] = useState<string[]>([])
-  const [activeMenu, setActiveMenu] = useState<string | null>(null)
-  const [qrModalFile, setQrModalFile] = useState<{ fileId: string; fileName: string; ipfsHash?: string } | null>(null)
-  const [mounted, setMounted] = useState(false)
-  const [baseUrl, setBaseUrl] = useState('')
+  const [activeFolder, setActiveFolder] = useState("all")
+  const [folderName, setFolderName] = useState("")
+  const [notice, setNotice] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [qrModalFile, setQrModalFile] = useState<FileRecord | null>(null)
+  const [pendingBatch, setPendingBatch] = useState<{ ids: string[]; hash: `0x${string}` } | null>(null)
+
+  const { writeContract, writeContractAsync, data: txHash, isPending: isWriting } = useWriteContract()
+  const { isLoading: isWaiting, isSuccess: txSuccess } = useWaitForTransactionReceipt({ hash: txHash })
 
   useEffect(() => {
     setMounted(true)
     setBaseUrl(window.location.origin)
   }, [])
 
-  // Get user's files from contract
   const { data: myFileIds, isLoading: filesLoading, refetch: refetchFiles } = useReadContract({
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
-    functionName: 'getMyFiles',
-    query: { enabled: isConnected && !!address && mounted }
+    functionName: "getMyFiles",
+    query: { enabled: mounted && isConnected && !!address },
   })
 
-  useEffect(() => {
-    if (mounted && isConnected && address) {
-      refetchFiles()
-    }
-  }, [mounted, isConnected, address, refetchFiles])
+  const { data: myFolderIds, refetch: refetchFolders } = useReadContract({
+    address: CONTRACT_ADDRESS as `0x${string}`,
+    abi: FHENIX_DROPBOX_ABI,
+    functionName: "getMyFolders",
+    query: { enabled: mounted && isConnected && !!address },
+  })
 
-  // Get stats
   const { data: stats } = useReadContract({
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
-    functionName: 'getStats',
-    query: { enabled: isConnected && mounted }
+    functionName: "getStats",
+    query: { enabled: mounted && isConnected },
   })
 
-  const totalFiles = stats ? Number(stats[0]) : 0
-  const totalDownloads = stats ? Number(stats[1]) : 0
-  const totalVolume = stats ? Number(stats[2]) / 1e6 : 0
-  const myFileCount = stats ? Number(stats[3]) : 0
+  const fileIds = useMemo(() => (Array.isArray(myFileIds) ? myFileIds.map((id) => id.toString()) : []), [myFileIds])
+  const folderIds = useMemo(() => (Array.isArray(myFolderIds) ? myFolderIds.map((id) => id.toString()) : []), [myFolderIds])
 
-  const fileIds = myFileIds ? Array.from(myFileIds) : []
+  const fileContracts = useMemo(() => fileIds.flatMap((id) => [
+    {
+      address: CONTRACT_ADDRESS as `0x${string}`,
+      abi: FHENIX_DROPBOX_ABI,
+      functionName: "getFileInfo",
+      args: [BigInt(id)],
+    },
+    {
+      address: CONTRACT_ADDRESS as `0x${string}`,
+      abi: FHENIX_DROPBOX_ABI,
+      functionName: "getFileMetadata",
+      args: [BigInt(id)],
+    },
+    {
+      address: CONTRACT_ADDRESS as `0x${string}`,
+      abi: FHENIX_DROPBOX_ABI,
+      functionName: "getFilePrivacy",
+      args: [BigInt(id)],
+    },
+  ]), [fileIds])
 
-  const copyToClipboard = useCallback(async (text: string, fileId?: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-      if (fileId) {
-        setCopiedId(fileId)
-        setTimeout(() => setCopiedId(null), 2000)
+  const { data: fileReadResults, refetch: refetchFileReads } = useReadContracts({
+    contracts: fileContracts,
+    query: { enabled: mounted && fileContracts.length > 0 },
+  })
+
+  const folderContracts = useMemo(() => folderIds.map((id) => ({
+    address: CONTRACT_ADDRESS as `0x${string}`,
+    abi: FHENIX_DROPBOX_ABI,
+    functionName: "folders",
+    args: [BigInt(id)],
+  })), [folderIds])
+
+  const { data: folderReadResults, refetch: refetchFolderReads } = useReadContracts({
+    contracts: folderContracts,
+    query: { enabled: mounted && folderContracts.length > 0 },
+  })
+
+  const localSecrets = useMemo(() => (address && mounted ? getAllLocalFileSecrets(address) : []), [address, mounted])
+
+  const folders = useMemo(() => {
+    const chainFolders = (folderReadResults || [])
+      .map((result) => tupleToFolderInfo(result.result))
+      .filter(Boolean) as FolderInfo[]
+
+    return [
+      { id: "0", name: "Root", color: "#111", fileCount: 0, isActive: true },
+      ...chainFolders.map((folder) => ({
+        id: folder.id.toString(),
+        name: folder.name,
+        color: folder.color || "#111",
+        fileCount: Number(folder.fileCount),
+        isActive: folder.isActive,
+      })),
+    ]
+  }, [folderReadResults])
+
+  const records = useMemo<FileRecord[]>(() => fileIds.map((id, index) => {
+    const info = tupleToFileInfo(fileReadResults?.[index * 3]?.result)
+    const metadata = tupleToFileMetadata(fileReadResults?.[index * 3 + 1]?.result)
+    const privacy = tupleToFilePrivacy(fileReadResults?.[index * 3 + 2]?.result)
+    const secret = localSecrets.find((item) => item.fileId === id)
+    return { id, info, metadata, privacy, secret }
+  }), [fileIds, fileReadResults, localSecrets])
+
+  const filteredRecords = useMemo(() => records.filter((record) => {
+    const name = record.secret?.fileName || record.metadata?.fileName || `File #${record.id}`
+    const matchesSearch =
+      name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      record.id.includes(searchQuery) ||
+      record.info?.ipfsHash.toLowerCase().includes(searchQuery.toLowerCase())
+    const folderId = record.metadata?.folderId?.toString() || "0"
+    const matchesFolder = activeFolder === "all" || folderId === activeFolder
+    return matchesSearch && matchesFolder
+  }), [activeFolder, records, searchQuery])
+
+  const statValues = Array.isArray(stats) ? stats : [0n, 0n, 0n, 0n]
+  const totalFiles = Number(statValues[0] || 0n)
+  const totalDownloads = Number(statValues[1] || 0n)
+  const totalVolume = BigInt(statValues[2] || 0n)
+  const myFileCount = Number(statValues[3] || 0n)
+
+  useEffect(() => {
+    if (!txSuccess) return
+    void refetchFiles()
+    void refetchFolders()
+    void refetchFileReads()
+    void refetchFolderReads()
+  }, [refetchFileReads, refetchFiles, refetchFolderReads, refetchFolders, txSuccess])
+
+  useEffect(() => {
+    if (!txSuccess || !pendingBatch || txHash !== pendingBatch.hash) return
+
+    const selected = records.filter((record) => pendingBatch.ids.includes(record.id))
+    setPendingBatch(null)
+
+    async function runDownloads() {
+      try {
+        for (const record of selected) {
+          await downloadRecord(record)
+        }
+        setNotice(`Downloaded ${selected.length} file(s).`)
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : "Batch download failed")
       }
-    } catch (err) {
-      console.error('Failed to copy:', err)
     }
+
+    void runDownloads()
+  }, [pendingBatch, records, txHash, txSuccess])
+
+  const copyToClipboard = useCallback(async (text: string, id: string) => {
+    await navigator.clipboard.writeText(text)
+    setCopiedId(id)
+    setTimeout(() => setCopiedId(null), 1800)
   }, [])
 
-  const filesList = fileIds.map((id: bigint) => {
-    const idStr = id.toString()
-    return {
-      id: idStr,
-      name: `File #${idStr}`,
-      ipfsHash: '',
-      size: "Encrypted",
-      status: "active",
-      createdAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    }
-  })
-
-  const filteredFiles = filesList.filter(file =>
-    file.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    file.ipfsHash?.toLowerCase().includes(searchQuery.toLowerCase())
-  )
-
-  const { writeContract } = useWriteContract()
-
-  const handleDeactivate = (fileId: string) => {
+  const createFolder = () => {
+    if (!folderName.trim()) return
     writeContract({
       address: CONTRACT_ADDRESS as `0x${string}`,
       abi: FHENIX_DROPBOX_ABI,
-      functionName: 'deactivateFile',
-      args: [BigInt(fileId)],
+      functionName: "createFolder",
+      args: [folderName.trim(), "#111111"],
+    })
+    setFolderName("")
+  }
+
+  const moveFile = (fileId: string, folderId: string) => {
+    writeContract({
+      address: CONTRACT_ADDRESS as `0x${string}`,
+      abi: FHENIX_DROPBOX_ABI,
+      functionName: "moveFileToFolder",
+      args: [BigInt(fileId), BigInt(folderId)],
     })
   }
 
-  const handleShareClick = (fileId: string) => {
-    window.open(`/share/${fileId}`, '_blank')
+  const toggleAnonymous = (fileId: string, currentValue: boolean) => {
+    writeContract({
+      address: CONTRACT_ADDRESS as `0x${string}`,
+      abi: FHENIX_DROPBOX_ABI,
+      functionName: "updateFilePrivacy",
+      args: [BigInt(fileId), !currentValue],
+    })
+  }
+
+  const runBatchDownload = async () => {
+    const selected = records.filter((record) => selectedFiles.includes(record.id))
+    const missingKey = selected.find((record) => record.info?.contentEncrypted && (!record.secret?.encryptionKey || !record.secret.encryptionIv))
+    if (missingKey) {
+      const name = missingKey.secret?.fileName || missingKey.metadata?.fileName || `File #${missingKey.id}`
+      setNotice(`${name} is encrypted and this browser does not have its key.`)
+      return
+    }
+
+    try {
+      const hash = await writeContractAsync({
+        address: CONTRACT_ADDRESS as `0x${string}`,
+        abi: FHENIX_DROPBOX_ABI,
+        functionName: "batchDownloadFiles",
+        args: [selectedFiles.map((id) => BigInt(id))],
+      })
+      setPendingBatch({ ids: selectedFiles, hash })
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Batch download transaction failed")
+    }
+  }
+
+  const toggleSelected = (id: string) => {
+    setSelectedFiles((current) => (
+      current.includes(id) ? current.filter((fileId) => fileId !== id) : [...current, id]
+    ))
   }
 
   if (!mounted) {
     return (
-      <div className="p-6 space-y-6">
-        <div className="h-16 w-64 bg-black/[0.05] rounded-2xl animate-pulse" />
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-28 bg-black/[0.05] rounded-2xl animate-pulse" />
-          ))}
-        </div>
+      <div className="p-6">
+        <div className="h-28 rounded-2xl bg-black/[0.05] animate-pulse" />
       </div>
     )
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="mx-auto max-w-7xl space-y-6 p-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-[#111]">My Files</h1>
-          <p className="text-sm text-black/50 mt-1">Manage and share your encrypted files</p>
+          <p className="mt-1 text-sm text-black/50">Organize, share, and batch download your on-chain files.</p>
         </div>
-        <Link
-          href="/upload"
-          className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#111] text-white text-sm font-medium hover:bg-[#222] transition-all shadow-lg hover:shadow-xl"
-        >
-          <Upload className="w-4 h-4" />
+        <Link href="/upload" className="inline-flex items-center gap-2 rounded-xl bg-[#111] px-5 py-3 text-sm font-medium text-white hover:bg-[#222]">
+          <Upload className="h-4 w-4" />
           Upload Files
         </Link>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 rounded-2xl p-5 border border-blue-200/50">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
-              <Folder className="w-5 h-5 text-blue-600" />
-            </div>
-          </div>
-          <div className="text-3xl font-bold text-blue-700">{filesLoading ? "..." : myFileCount}</div>
-          <div className="text-xs text-blue-600/70 mt-1">My Files</div>
+      {notice && (
+        <div className="flex items-center gap-2 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <AlertCircle className="h-4 w-4" />
+          {notice}
         </div>
+      )}
 
-        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 rounded-2xl p-5 border border-emerald-200/50">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
-              <Download className="w-5 h-5 text-emerald-600" />
-            </div>
-          </div>
-          <div className="text-3xl font-bold text-emerald-700">{totalDownloads}</div>
-          <div className="text-xs text-emerald-600/70 mt-1">Total Downloads</div>
-        </div>
-
-        <div className="bg-gradient-to-br from-amber-50 to-amber-100/50 rounded-2xl p-5 border border-amber-200/50">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
-              <TrendingUp className="w-5 h-5 text-amber-600" />
-            </div>
-          </div>
-          <div className="text-3xl font-bold text-amber-700">{totalVolume.toFixed(2)}</div>
-          <div className="text-xs text-amber-600/70 mt-1">USDC Earned</div>
-        </div>
-
-        <div className="bg-gradient-to-br from-purple-50 to-purple-100/50 rounded-2xl p-5 border border-purple-200/50">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center">
-              <Shield className="w-5 h-5 text-purple-600" />
-            </div>
-          </div>
-          <div className="text-3xl font-bold text-purple-700">{totalFiles}</div>
-          <div className="text-xs text-purple-600/70 mt-1">Total Platform</div>
-        </div>
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard icon={Folder} label="My Files" value={filesLoading ? "..." : myFileCount.toString()} tone="blue" />
+        <StatCard icon={Download} label="Downloads" value={totalDownloads.toString()} tone="emerald" />
+        <StatCard icon={Shield} label="Volume" value={`${formatNativePrice(totalVolume)} ETH`} tone="amber" />
+        <StatCard icon={Hash} label="Platform Files" value={totalFiles.toString()} tone="purple" />
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-black/30" />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search files by name or ID..."
-          className="w-full pl-12 pr-4 py-3.5 rounded-2xl border border-black/[0.08] bg-white text-sm focus:outline-none focus:border-black/[0.2] focus:ring-2 focus:ring-black/[0.05] transition-all"
-        />
-      </div>
-
-      {/* Files Grid */}
-      <div className="bg-white rounded-3xl border border-black/[0.08] overflow-hidden shadow-sm">
-        {filesLoading ? (
-          <div className="p-20 text-center">
-            <div className="w-16 h-16 rounded-full bg-black/[0.05] flex items-center justify-center mx-auto mb-4">
-              <Loader2 className="w-8 h-8 animate-spin text-black/30" />
+      <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
+        <aside className="space-y-4">
+          <div className="rounded-2xl border border-black/[0.07] bg-white p-4">
+            <div className="mb-3 flex items-center gap-2 font-medium">
+              <FolderPlus className="h-4 w-4" />
+              Folders
             </div>
-            <div className="text-sm text-black/50">Loading from blockchain...</div>
-          </div>
-        ) : fileIds.length === 0 ? (
-          <div className="p-20 text-center">
-            <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-[#f5f4f0] to-[#e8e6e0] flex items-center justify-center mx-auto mb-6">
-              <FileText className="w-12 h-12 text-black/20" />
-            </div>
-            <h3 className="text-lg font-medium text-black/70 mb-2">No files uploaded yet</h3>
-            <p className="text-sm text-black/40 mb-6 max-w-sm mx-auto">
-              Upload your first file and start sharing with complete privacy protection
-            </p>
-            <Link
-              href="/upload"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#111] text-white text-sm font-medium hover:bg-[#222] transition-all"
-            >
-              <Upload className="w-4 h-4" />
-              Upload Your First File
-            </Link>
-          </div>
-        ) : (
-          <div className="divide-y divide-black/[0.04]">
-            {filteredFiles.map((file, index) => (
-              <div
-                key={file.id}
-                className="p-5 hover:bg-black/[0.02] transition-colors group"
+            <div className="space-y-1">
+              <button
+                onClick={() => setActiveFolder("all")}
+                className={`w-full rounded-xl px-3 py-2 text-left text-sm ${activeFolder === "all" ? "bg-[#111] text-white" : "hover:bg-black/[0.04]"}`}
               >
-                <div className="flex items-center gap-4">
-                  {/* File Icon */}
-                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#f5f4f0] to-[#e8e6e0] flex items-center justify-center shrink-0">
-                    <FileText className="w-7 h-7 text-black/40" />
-                  </div>
-
-                  {/* File Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-medium text-[#111] truncate">{file.name}</h3>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium">
-                        <Lock className="w-3 h-3" />
-                        Encrypted
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-4 mt-1.5 text-xs text-black/40">
-                      <span className="inline-flex items-center gap-1">
-                        <Hash className="w-3 h-3" />
-                        ID: {file.id}
-                      </span>
-                      <span className="inline-flex items-center gap-1">
-                        <Calendar className="w-3 h-3" />
-                        {file.createdAt}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => setQrModalFile({ fileId: file.id, fileName: file.name })}
-                      className="p-2.5 rounded-xl hover:bg-black/[0.05] transition-colors bg-black/[0.02]"
-                      title="QR Code"
-                    >
-                      <QrCode className="w-5 h-5 text-black/50" />
-                    </button>
-                    <button
-                      onClick={() => handleShareClick(file.id)}
-                      className="p-2.5 rounded-xl hover:bg-black/[0.05] transition-colors bg-black/[0.02]"
-                      title="Share"
-                    >
-                      <Share2 className="w-5 h-5 text-black/50" />
-                    </button>
-                    <button
-                      onClick={() => copyToClipboard(`${baseUrl}/share/${file.id}`, file.id)}
-                      className={`p-2.5 rounded-xl transition-colors ${
-                        copiedId === file.id
-                          ? 'bg-emerald-100 text-emerald-600'
-                          : 'bg-black/[0.02] hover:bg-black/[0.05]'
-                      }`}
-                      title="Copy Link"
-                    >
-                      {copiedId === file.id ? (
-                        <CheckCircle2 className="w-5 h-5" />
-                      ) : (
-                        <Copy className="w-5 h-5 text-black/50" />
-                      )}
-                    </button>
-                    <Link
-                      href={`/share/${file.id}`}
-                      className="px-4 py-2 rounded-xl bg-[#111] text-white text-xs font-medium hover:bg-[#222] transition-colors flex items-center gap-1.5"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      View
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            ))}
+                All files
+              </button>
+              {folders.map((folder) => (
+                <button
+                  key={folder.id}
+                  onClick={() => setActiveFolder(folder.id)}
+                  className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm ${
+                    activeFolder === folder.id ? "bg-[#111] text-white" : "hover:bg-black/[0.04]"
+                  }`}
+                >
+                  <span className="truncate">{folder.name}</span>
+                  {folder.id !== "0" && <span className="text-xs opacity-60">{folder.fileCount}</span>}
+                </button>
+              ))}
+            </div>
+            <div className="mt-4 flex gap-2">
+              <input
+                value={folderName}
+                onChange={(event) => setFolderName(event.target.value)}
+                placeholder="New folder"
+                className="min-w-0 flex-1 rounded-lg border border-black/[0.08] bg-black/[0.02] px-3 py-2 text-sm"
+              />
+              <button
+                onClick={createFolder}
+                disabled={isWriting || isWaiting}
+                className="rounded-lg bg-[#111] px-3 text-white disabled:opacity-50"
+              >
+                {isWriting || isWaiting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderPlus className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
-        )}
+
+          <div className="rounded-2xl border border-black/[0.07] bg-white p-4 text-xs text-black/45">
+            <div className="mb-2 flex items-center gap-2 text-sm font-medium text-black/70">
+              <Shield className="h-4 w-4" />
+              Wave 4 Tools
+            </div>
+            Folder moves and webhook endpoints are recorded on-chain. Secret file keys stay in this browser and in copied share links.
+          </div>
+        </aside>
+
+        <section className="space-y-4">
+          <div className="flex flex-col gap-3 rounded-2xl border border-black/[0.07] bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-black/30" />
+              <input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search files, IDs, or IPFS hashes"
+                className="w-full rounded-xl border border-black/[0.08] bg-black/[0.02] py-3 pl-10 pr-4 text-sm"
+              />
+            </div>
+            <button
+              onClick={runBatchDownload}
+              disabled={selectedFiles.length === 0 || isWriting || isWaiting}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#111] px-4 py-3 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {isWriting || isWaiting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              Batch Download ({selectedFiles.length})
+            </button>
+          </div>
+
+          <div className="overflow-hidden rounded-2xl border border-black/[0.07] bg-white">
+            {filesLoading ? (
+              <div className="p-20 text-center">
+                <Loader2 className="mx-auto mb-4 h-8 w-8 animate-spin text-black/30" />
+                <div className="text-sm text-black/50">Loading from blockchain...</div>
+              </div>
+            ) : records.length === 0 ? (
+              <div className="p-20 text-center">
+                <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-black/[0.04]">
+                  <FileText className="h-10 w-10 text-black/25" />
+                </div>
+                <h3 className="mb-2 text-lg font-medium">No files uploaded yet</h3>
+                <p className="mx-auto mb-6 max-w-sm text-sm text-black/45">Upload your first encrypted file and the on-chain metadata will show here.</p>
+                <Link href="/upload" className="inline-flex items-center gap-2 rounded-xl bg-[#111] px-5 py-3 text-sm text-white">
+                  <Upload className="h-4 w-4" />
+                  Upload Your First File
+                </Link>
+              </div>
+            ) : filteredRecords.length === 0 ? (
+              <div className="p-12 text-center text-sm text-black/45">No files match this view.</div>
+            ) : (
+              <div className="divide-y divide-black/[0.05]">
+                {filteredRecords.map((record) => {
+                  const name = record.secret?.fileName || record.metadata?.fileName || `File #${record.id}`
+                  const folderId = record.metadata?.folderId?.toString() || "0"
+                  const shareUrl = buildShareUrl(baseUrl, record.id, {
+                    fileName: name,
+                    mimeType: record.secret?.mimeType || record.metadata?.mimeType || "",
+                    ipfsHash: record.info?.ipfsHash || "",
+                    encrypted: record.info?.contentEncrypted || false,
+                    encryptionKey: record.secret?.encryptionKey,
+                    encryptionIv: record.secret?.encryptionIv,
+                    anonymousUpload: record.privacy?.anonymousUpload ?? record.secret?.anonymousUpload,
+                  })
+                  const remaining = record.info ? getRemainingDownloads(record.info.maxDownloads, record.info.downloadCount) : 0
+                  const isAnonymous = record.privacy?.anonymousUpload ?? record.secret?.anonymousUpload ?? false
+
+                  return (
+                    <div key={record.id} className="p-5 hover:bg-black/[0.015]">
+                      <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
+                        <div className="flex min-w-0 flex-1 items-center gap-4">
+                          <input
+                            type="checkbox"
+                            checked={selectedFiles.includes(record.id)}
+                            onChange={() => toggleSelected(record.id)}
+                            className="h-4 w-4"
+                          />
+                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-black/[0.04]">
+                            <FileText className="h-6 w-6 text-black/40" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <h3 className="truncate font-medium">{name}</h3>
+                              {record.info?.contentEncrypted && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
+                                  <Lock className="h-3 w-3" />
+                                  Encrypted
+                                </span>
+                              )}
+                              {isAnonymous && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-700">
+                                  <EyeOff className="h-3 w-3" />
+                                  Anonymous
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-black/40">
+                              <span>ID: {record.id}</span>
+                              {record.metadata?.fileSize ? <span>{formatFileSize(Number(record.metadata.fileSize))}</span> : null}
+                              <span>{remaining === Infinity ? "Unlimited" : `${remaining} left`}</span>
+                              <span>{record.metadata?.expiresAt ? formatDate(record.metadata.expiresAt) : "No expiry"}</span>
+                              {record.info?.price ? <span>{formatNativePrice(record.info.price)} ETH</span> : <span>Free</span>}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                          <select
+                            value={folderId}
+                            onChange={(event) => moveFile(record.id, event.target.value)}
+                            className="rounded-lg border border-black/[0.08] bg-black/[0.02] px-3 py-2 text-xs"
+                            title="Move to folder"
+                          >
+                            {folders.map((folder) => (
+                              <option key={folder.id} value={folder.id}>{folder.name}</option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => toggleAnonymous(record.id, isAnonymous)}
+                            className="rounded-lg border border-black/[0.08] p-2 hover:bg-black/[0.04]"
+                            title={isAnonymous ? "Show owner in contract lookups" : "Hide owner in public contract lookups"}
+                          >
+                            <EyeOff className={`h-4 w-4 ${isAnonymous ? "text-violet-600" : "text-black/45"}`} />
+                          </button>
+                          <button
+                            onClick={() => setQrModalFile(record)}
+                            className="rounded-lg border border-black/[0.08] p-2 hover:bg-black/[0.04]"
+                            title="QR code"
+                          >
+                            <QrCode className="h-4 w-4 text-black/55" />
+                          </button>
+                          <button
+                            onClick={() => copyToClipboard(shareUrl, record.id)}
+                            className="rounded-lg border border-black/[0.08] p-2 hover:bg-black/[0.04]"
+                            title="Copy secret link"
+                          >
+                            {copiedId === record.id ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4 text-black/55" />}
+                          </button>
+                          <Link href={`/share/${record.id}`} className="inline-flex items-center gap-1.5 rounded-lg bg-[#111] px-3 py-2 text-xs text-white">
+                            <MoveRight className="h-3.5 w-3.5" />
+                            Open
+                          </Link>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </section>
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between text-xs text-black/40 py-2">
+      <div className="flex items-center justify-between text-xs text-black/40">
         <span className="inline-flex items-center gap-1.5">
-          <Shield className="w-3.5 h-3.5" />
-          Protected by Fhenix FHE on Ethereum Sepolia
+          <Shield className="h-3.5 w-3.5" />
+          Protected by FhenixDropBox on Ethereum Sepolia
         </span>
         <a
           href={`https://sepolia.etherscan.io/address/${CONTRACT_ADDRESS}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 hover:text-black transition-colors"
+          className="inline-flex items-center gap-1.5 hover:text-black"
         >
           View Contract
-          <ExternalLink className="w-3.5 h-3.5" />
+          <ExternalLink className="h-3.5 w-3.5" />
         </a>
       </div>
 
-      {/* QR Modal */}
       {qrModalFile && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setQrModalFile(null)}>
-          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="text-center mb-6">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#f5f4f0] to-[#e8e6e0] flex items-center justify-center mx-auto mb-4">
-                <QrCode className="w-8 h-8 text-black/40" />
-              </div>
-              <h3 className="text-xl font-semibold text-[#111]">Scan to Access</h3>
-              <p className="text-sm text-black/50 mt-1">{qrModalFile.fileName}</p>
-            </div>
-
-            <div className="bg-white p-4 rounded-2xl border-2 border-black/[0.08] flex items-center justify-center mb-6">
-              <QRCodeSVG
-                value={`${baseUrl}/share/${qrModalFile.fileId}`}
-                size={180}
-                level="H"
-                includeMargin={false}
-              />
-            </div>
-
-            <div className="bg-[#f5f4f0] rounded-xl p-3 mb-6">
-              <div className="text-xs text-black/40 mb-1 text-center">Share Link</div>
-              <div className="text-xs font-mono text-[#111] text-center break-all">
-                {`${baseUrl}/share/${qrModalFile.fileId}`}
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => copyToClipboard(`${baseUrl}/share/${qrModalFile.fileId}`)}
-                className="flex-1 py-3.5 rounded-xl bg-[#111] text-white text-sm font-medium hover:bg-[#222] transition-colors flex items-center justify-center gap-2"
-              >
-                <Copy className="w-4 h-4" />
-                Copy Link
-              </button>
-              <button
-                onClick={() => setQrModalFile(null)}
-                className="px-6 py-3.5 rounded-xl border border-black/[0.1] text-sm hover:bg-black/[0.02] transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
+        <QRModal
+          record={qrModalFile}
+          url={buildShareUrl(baseUrl, qrModalFile.id, {
+            fileName: qrModalFile.secret?.fileName || qrModalFile.metadata?.fileName || `File #${qrModalFile.id}`,
+            mimeType: qrModalFile.secret?.mimeType || qrModalFile.metadata?.mimeType || "",
+            ipfsHash: qrModalFile.info?.ipfsHash || "",
+            encrypted: qrModalFile.info?.contentEncrypted || false,
+            encryptionKey: qrModalFile.secret?.encryptionKey,
+            encryptionIv: qrModalFile.secret?.encryptionIv,
+            anonymousUpload: qrModalFile.privacy?.anonymousUpload ?? qrModalFile.secret?.anonymousUpload,
+          })}
+          onClose={() => setQrModalFile(null)}
+        />
       )}
+    </div>
+  )
+}
+
+function StatCard({ icon: Icon, label, value, tone }: { icon: any; label: string; value: string; tone: "blue" | "emerald" | "amber" | "purple" }) {
+  const tones = {
+    blue: "from-blue-50 to-blue-100/50 border-blue-200/50 text-blue-700",
+    emerald: "from-emerald-50 to-emerald-100/50 border-emerald-200/50 text-emerald-700",
+    amber: "from-amber-50 to-amber-100/50 border-amber-200/50 text-amber-700",
+    purple: "from-purple-50 to-purple-100/50 border-purple-200/50 text-purple-700",
+  }
+
+  return (
+    <div className={`rounded-2xl border bg-gradient-to-br p-5 ${tones[tone]}`}>
+      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-white/55">
+        <Icon className="h-5 w-5" />
+      </div>
+      <div className="text-2xl font-semibold">{value}</div>
+      <div className="mt-1 text-xs opacity-70">{label}</div>
+    </div>
+  )
+}
+
+function QRModal({ record, url, onClose }: { record: FileRecord; url: string; onClose: () => void }) {
+  const name = record.secret?.fileName || record.metadata?.fileName || `File #${record.id}`
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="mb-5 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-black/[0.04]">
+            <QrCode className="h-7 w-7 text-black/40" />
+          </div>
+          <h3 className="text-lg font-medium">Scan to Access</h3>
+          <p className="mt-1 truncate text-sm text-black/50">{name}</p>
+        </div>
+        <div className="mb-5 flex items-center justify-center rounded-xl border border-black/[0.08] p-4">
+          <QRCodeSVG value={url} size={180} level="H" />
+        </div>
+        <button onClick={onClose} className="w-full rounded-xl bg-[#111] py-3 text-sm text-white">
+          Close
+        </button>
+      </div>
     </div>
   )
 }

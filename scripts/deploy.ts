@@ -1,5 +1,5 @@
 import pkg from "hardhat";
-const { ethers } = pkg;
+const { ethers, network } = pkg;
 
 async function main() {
   console.log("Deploying FhenixDropBox contract...");
@@ -18,7 +18,7 @@ async function main() {
 
   console.log("\nDeployment successful!");
   console.log(`Contract Address: ${address}`);
-  console.log(`Network: Arbitrum Sepolia (Chain ID: 421614)`);
+  console.log(`Network: ${network.name} (Chain ID: ${network.config.chainId})`);
 }
 
 main()
