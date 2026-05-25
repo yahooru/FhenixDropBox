@@ -38,6 +38,7 @@ import { formatFileSize, generateEncryptionKey, generateIV, uploadToIPFSViaAPI }
 import { getPreferences } from "@/lib/preferences"
 import { MAX_RELAYER_INTENT_TTL_SECONDS, buildRelayerIntentHash, serializeRelayerInputs } from "@/lib/relayer"
 import { buildShareUrl, saveLocalFileSecrets, type LocalFileSecret } from "@/lib/share-links"
+import { copyTextToClipboard } from "@/lib/clipboard"
 import { signWalletMessage } from "@/lib/wallet-signing"
 
 const MAX_FILES = 10
@@ -166,6 +167,7 @@ export default function UploadPage() {
   const [notice, setNotice] = useState<string | null>(null)
   const [cofheStep, setCofheStep] = useState<string | null>(null)
   const [qrModalFile, setQrModalFile] = useState<{ fileId: bigint; file: FileItem } | null>(null)
+  const [copiedFileId, setCopiedFileId] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<TransactionReceipt | null>(null)
   const [txHash, setTxHash] = useState<Hex | null>(null)
   const [isWaiting, setIsWaiting] = useState(false)
@@ -563,10 +565,18 @@ export default function UploadPage() {
     }
   }
 
-  const copyToClipboard = async (text: string) => {
-    await navigator.clipboard.writeText(text)
-    setNotice("Share link copied.")
-    setTimeout(() => setNotice(null), 1600)
+  const copyToClipboard = async (text: string, fileId?: string) => {
+    try {
+      await copyTextToClipboard(text)
+      setCopiedFileId(fileId || null)
+      setNotice("Share link copied.")
+      setTimeout(() => {
+        setNotice(null)
+        setCopiedFileId((current) => (current === fileId ? null : current))
+      }, 1600)
+    } catch {
+      setNotice("Copy failed. Select the link text and copy it manually.")
+    }
   }
 
   if (!isConnected) {
@@ -935,11 +945,11 @@ export default function UploadPage() {
                       QR
                     </button>
                     <button
-                      onClick={() => copyToClipboard(shareUrl)}
+                      onClick={() => copyToClipboard(shareUrl, fileId.toString())}
                       className="flex items-center gap-1.5 rounded-lg bg-[#111] px-3 py-2 text-xs text-white"
                     >
-                      <Copy className="h-3.5 w-3.5" />
-                      Copy
+                      {copiedFileId === fileId.toString() ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                      {copiedFileId === fileId.toString() ? "Copied" : "Copy"}
                     </button>
                   </div>
                 </div>

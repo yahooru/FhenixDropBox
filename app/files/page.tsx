@@ -6,6 +6,7 @@ import { useAccount, useConnect, useReadContract, useReadContracts, useSwitchCha
 import { sepolia } from "wagmi/chains"
 import {
   AlertCircle,
+  ArrowLeft,
   CheckCircle2,
   Copy,
   Download,
@@ -49,6 +50,7 @@ import {
   type TeamInfo,
 } from "@/lib/fhenix"
 import { decryptFile, formatFileSize, getFromIPFS } from "@/lib/ipfs"
+import { copyTextToClipboard } from "@/lib/clipboard"
 import { buildShareUrl, getAllLocalFileSecrets, type LocalFileSecret } from "@/lib/share-links"
 
 interface FileRecord {
@@ -115,7 +117,7 @@ export default function FilesPage() {
   const [pendingBatch, setPendingBatch] = useState<{ ids: string[]; hash: `0x${string}` } | null>(null)
 
   const { writeContract, writeContractAsync, data: txHash, isPending: isWriting, error: writeError } = useWriteContract()
-  const { isLoading: isWaiting, isSuccess: txSuccess } = useWaitForTransactionReceipt({ hash: txHash })
+  const { isLoading: isWaiting, isSuccess: txSuccess } = useWaitForTransactionReceipt({ hash: txHash, chainId: sepolia.id })
   const wrongNetwork = isConnected && walletChainId !== sepolia.id
 
   useEffect(() => {
@@ -127,6 +129,8 @@ export default function FilesPage() {
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
     functionName: "getMyFiles",
+    account: address,
+    chainId: sepolia.id,
     query: { enabled: mounted && isConnected && !!address },
   })
 
@@ -134,6 +138,8 @@ export default function FilesPage() {
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
     functionName: "getMyFolders",
+    account: address,
+    chainId: sepolia.id,
     query: { enabled: mounted && isConnected && !!address },
   })
 
@@ -141,6 +147,8 @@ export default function FilesPage() {
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
     functionName: "getVisibleFolders",
+    account: address,
+    chainId: sepolia.id,
     query: { enabled: mounted && isConnected && !!address },
   })
 
@@ -148,6 +156,8 @@ export default function FilesPage() {
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
     functionName: "getMyTeams",
+    account: address,
+    chainId: sepolia.id,
     query: { enabled: mounted && isConnected && !!address },
   })
 
@@ -155,7 +165,9 @@ export default function FilesPage() {
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
     functionName: "getStats",
-    query: { enabled: mounted && isConnected },
+    account: address,
+    chainId: sepolia.id,
+    query: { enabled: mounted && isConnected && !!address },
   })
 
   const { data: activeFolderFileIds, refetch: refetchActiveFolderFiles } = useReadContract({
@@ -163,10 +175,14 @@ export default function FilesPage() {
     abi: FHENIX_DROPBOX_ABI,
     functionName: "getVisibleFilesByFolder",
     args: [BigInt(activeFolder === "all" ? "0" : activeFolder)],
+    account: address,
+    chainId: sepolia.id,
     query: { enabled: mounted && isConnected && !!address && activeFolder !== "all" },
   })
 
+  const localSecrets = useMemo(() => (address && mounted ? getAllLocalFileSecrets(address) : []), [address, mounted])
   const ownFileIds = useMemo(() => (Array.isArray(myFileIds) ? myFileIds.map((id) => id.toString()) : []), [myFileIds])
+  const localSecretFileIds = useMemo(() => localSecrets.map((file) => file.fileId), [localSecrets])
   const visibleActiveFileIds = useMemo(() => (Array.isArray(activeFolderFileIds) ? activeFolderFileIds.map((id) => id.toString()) : []), [activeFolderFileIds])
   const visibleFolderFileContracts = useMemo(() => (
     activeFolder === "all" && Array.isArray(visibleFolderIds)
@@ -175,9 +191,11 @@ export default function FilesPage() {
         abi: FHENIX_DROPBOX_ABI,
         functionName: "getVisibleFilesByFolder",
         args: [BigInt(id)],
+        account: address,
+        chainId: sepolia.id,
       }))
       : []
-  ), [activeFolder, visibleFolderIds])
+  ), [activeFolder, address, visibleFolderIds])
   const { data: visibleFolderFileResults, refetch: refetchVisibleFolderFileReads } = useReadContracts({
     contracts: visibleFolderFileContracts,
     query: { enabled: mounted && isConnected && !!address && visibleFolderFileContracts.length > 0 },
@@ -188,7 +206,9 @@ export default function FilesPage() {
       Array.isArray(result.result) ? result.result.map((id) => id.toString()) : []
     ))
   }, [activeFolder, visibleActiveFileIds, visibleFolderFileResults])
-  const fileIds = useMemo(() => Array.from(new Set([...ownFileIds, ...allVisibleFileIds])), [allVisibleFileIds, ownFileIds])
+  const fileIds = useMemo(() => (
+    Array.from(new Set([...ownFileIds, ...allVisibleFileIds, ...localSecretFileIds]))
+  ), [allVisibleFileIds, localSecretFileIds, ownFileIds])
   const folderIds = useMemo(() => {
     const own = Array.isArray(myFolderIds) ? myFolderIds.map((id) => id.toString()) : []
     const visible = Array.isArray(visibleFolderIds) ? visibleFolderIds.map((id) => id.toString()) : []
@@ -202,30 +222,34 @@ export default function FilesPage() {
       abi: FHENIX_DROPBOX_ABI,
       functionName: "getFileInfo",
       args: [BigInt(id)],
+      chainId: sepolia.id,
     },
     {
       address: CONTRACT_ADDRESS as `0x${string}`,
       abi: FHENIX_DROPBOX_ABI,
       functionName: "getFileMetadata",
       args: [BigInt(id)],
+      chainId: sepolia.id,
     },
     {
       address: CONTRACT_ADDRESS as `0x${string}`,
       abi: FHENIX_DROPBOX_ABI,
       functionName: "getFilePrivacy",
       args: [BigInt(id)],
+      chainId: sepolia.id,
     },
     {
       address: CONTRACT_ADDRESS as `0x${string}`,
       abi: FHENIX_DROPBOX_ABI,
       functionName: "getConfidentialRuleHandles",
       args: [BigInt(id)],
+      chainId: sepolia.id,
     },
   ]), [fileIds])
 
   const { data: fileReadResults, refetch: refetchFileReads } = useReadContracts({
     contracts: fileContracts,
-    query: { enabled: mounted && fileContracts.length > 0 },
+    query: { enabled: mounted && isConnected && !!address && fileContracts.length > 0 },
   })
 
   const folderContracts = useMemo(() => folderIds.map((id) => ({
@@ -233,11 +257,12 @@ export default function FilesPage() {
     abi: FHENIX_DROPBOX_ABI,
     functionName: "folders",
     args: [BigInt(id)],
+    chainId: sepolia.id,
   })), [folderIds])
 
   const { data: folderReadResults, refetch: refetchFolderReads } = useReadContracts({
     contracts: folderContracts,
-    query: { enabled: mounted && folderContracts.length > 0 },
+    query: { enabled: mounted && isConnected && !!address && folderContracts.length > 0 },
   })
 
   const teamContracts = useMemo(() => teamIds.map((id) => ({
@@ -245,14 +270,13 @@ export default function FilesPage() {
     abi: FHENIX_DROPBOX_ABI,
     functionName: "teams",
     args: [BigInt(id)],
+    chainId: sepolia.id,
   })), [teamIds])
 
   const { data: teamReadResults, refetch: refetchTeamReads } = useReadContracts({
     contracts: teamContracts,
-    query: { enabled: mounted && teamContracts.length > 0 },
+    query: { enabled: mounted && isConnected && !!address && teamContracts.length > 0 },
   })
-
-  const localSecrets = useMemo(() => (address && mounted ? getAllLocalFileSecrets(address) : []), [address, mounted])
 
   const folders = useMemo(() => {
     const chainFolders = (folderReadResults || [])
@@ -284,8 +308,8 @@ export default function FilesPage() {
     const privacy = tupleToFilePrivacy(fileReadResults?.[baseIndex + 2]?.result)
     const confidential = tupleToConfidentialRuleHandles(fileReadResults?.[baseIndex + 3]?.result)
     const secret = localSecrets.find((item) => item.fileId === id)
-    return { id, owned: ownFileIds.includes(id), info, metadata, privacy, confidential, secret }
-  }), [fileIds, fileReadResults, localSecrets, ownFileIds])
+    return { id, owned: ownFileIds.includes(id) || localSecretFileIds.includes(id), info, metadata, privacy, confidential, secret }
+  }), [fileIds, fileReadResults, localSecretFileIds, localSecrets, ownFileIds])
 
   const filteredRecords = useMemo(() => records.filter((record) => {
     const name = record.secret?.fileName || record.metadata?.fileName || `File #${record.id}`
@@ -306,7 +330,9 @@ export default function FilesPage() {
   const totalFiles = Number(statValues[0] || 0n)
   const totalDownloads = Number(statValues[1] || 0n)
   const totalVolume = BigInt(statValues[2] || 0n)
-  const myFileCount = Number(statValues[3] || 0n)
+  const contractMyFileCount = Number(statValues[3] || 0n)
+  const localOwnedFileCount = new Set([...ownFileIds, ...localSecretFileIds]).size
+  const myFileCount = Math.max(contractMyFileCount, localOwnedFileCount)
 
   useEffect(() => {
     if (!txSuccess) return
@@ -362,9 +388,17 @@ export default function FilesPage() {
   }, [pendingBatch, records, txHash, txSuccess])
 
   const copyToClipboard = useCallback(async (text: string, id: string) => {
-    await navigator.clipboard.writeText(text)
-    setCopiedId(id)
-    setTimeout(() => setCopiedId(null), 1800)
+    try {
+      await copyTextToClipboard(text)
+      setCopiedId(id)
+      setNotice("Share link copied.")
+      setTimeout(() => {
+        setCopiedId((current) => (current === id ? null : current))
+        setNotice(null)
+      }, 1800)
+    } catch {
+      setNotice("Copy failed. Select the link text and copy it manually.")
+    }
   }, [])
 
   const createFolder = async () => {
@@ -537,9 +571,18 @@ export default function FilesPage() {
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-[#111]">My Files</h1>
-          <p className="mt-1 text-sm text-black/50">Organize, share, and batch download your on-chain files.</p>
+        <div className="flex items-start gap-3">
+          <Link
+            href="/dashboard"
+            className="mt-0.5 rounded-lg p-2 text-black/60 transition-colors hover:bg-black/[0.04] hover:text-black"
+            aria-label="Back to dashboard"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Link>
+          <div>
+            <h1 className="text-2xl font-semibold text-[#111]">My Files</h1>
+            <p className="mt-1 text-sm text-black/50">Organize, share, and batch download your on-chain files.</p>
+          </div>
         </div>
         <Link href="/upload" className="inline-flex items-center gap-2 rounded-xl bg-[#111] px-5 py-3 text-sm font-medium text-white hover:bg-[#222]">
           <Upload className="h-4 w-4" />
