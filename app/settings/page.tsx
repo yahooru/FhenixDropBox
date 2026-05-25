@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { useAccount, useReadContract, useReadContracts, useSignMessage, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
+import { useAccount, useReadContract, useReadContracts, useSwitchChain, useWaitForTransactionReceipt, useWalletClient, useWriteContract } from "wagmi"
 import { sepolia } from "wagmi/chains"
-import { getAddress, parseEventLogs } from "viem"
+import { getAddress, parseEventLogs, type Hex } from "viem"
 import { useTheme } from "next-themes"
 import {
   Shield,
@@ -40,6 +40,7 @@ import {
   buildWebhookTargetRegistrationMessage,
   hashWebhookTargetEndpoint,
 } from "@/lib/webhooks"
+import { signWalletMessage } from "@/lib/wallet-signing"
 
 interface SettingRowProps {
   title: string
@@ -134,9 +135,9 @@ function ThemeOption({ theme, label, gradient, active, onClick }: ThemeOptionPro
 
 export default function SettingsPage() {
   const router = useRouter()
-  const { address, isConnected, chainId: walletChainId } = useAccount()
+  const { address, isConnected, chainId: walletChainId, connector } = useAccount()
   const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain()
-  const { signMessageAsync } = useSignMessage()
+  const { data: walletClient } = useWalletClient()
   const { theme, setTheme } = useTheme()
   const [copied, setCopied] = useState(false)
   const [copiedContract, setCopiedContract] = useState(false)
@@ -292,7 +293,12 @@ export default function SettingsPage() {
           eventMask: pendingWebhookTarget.eventMask,
           timestamp,
         })
-        const signature = await signMessageAsync({ message })
+        const signature = await signWalletMessage({
+          account: normalizedOwner as Hex,
+          message,
+          walletClient,
+          connector,
+        })
         const response = await fetch("/api/webhooks/targets", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -334,7 +340,8 @@ export default function SettingsPage() {
     pendingWebhookTarget,
     refetchWebhookIds,
     refetchWebhookReads,
-    signMessageAsync,
+    connector,
+    walletClient,
     webhookReceipt,
     webhookSuccess,
     webhookTxHash,
