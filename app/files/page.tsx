@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { useAccount, useConnect, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
+import { useAccount, useConnect, useReadContract, useReadContracts, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
+import { sepolia } from "wagmi/chains"
 import {
   AlertCircle,
   CheckCircle2,
@@ -95,8 +96,9 @@ function hasUsableShareLink(record: FileRecord) {
 }
 
 export default function FilesPage() {
-  const { address, isConnected } = useAccount()
+  const { address, isConnected, chainId: walletChainId } = useAccount()
   const { connect, connectors, isPending: isConnecting } = useConnect()
+  const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain()
   const [mounted, setMounted] = useState(false)
   const [baseUrl, setBaseUrl] = useState("")
   const [searchQuery, setSearchQuery] = useState("")
@@ -114,6 +116,7 @@ export default function FilesPage() {
 
   const { writeContract, writeContractAsync, data: txHash, isPending: isWriting, error: writeError } = useWriteContract()
   const { isLoading: isWaiting, isSuccess: txSuccess } = useWaitForTransactionReceipt({ hash: txHash })
+  const wrongNetwork = isConnected && walletChainId !== sepolia.id
 
   useEffect(() => {
     setMounted(true)
@@ -320,9 +323,23 @@ export default function FilesPage() {
 
   useEffect(() => {
     if (!writeError) return
-    setNotice(writeError.message || "Transaction was not submitted.")
+    setNotice(writeError.message.includes("does not match the target chain")
+      ? `Switch your wallet to ${sepolia.name} before submitting on-chain actions.`
+      : writeError.message || "Transaction was not submitted.")
     setPendingBatch(null)
   }, [writeError])
+
+  const ensureSepolia = useCallback(async () => {
+    if (!wrongNetwork) return true
+    setNotice(`Switching wallet to ${sepolia.name}...`)
+    try {
+      await switchChainAsync({ chainId: sepolia.id })
+      setNotice(`Wallet switched to ${sepolia.name}. Click the action again to submit on-chain.`)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : `Please switch your wallet to ${sepolia.name}.`)
+    }
+    return false
+  }, [switchChainAsync, wrongNetwork])
 
   useEffect(() => {
     if (!txSuccess || !pendingBatch || txHash !== pendingBatch.hash) return
@@ -350,65 +367,77 @@ export default function FilesPage() {
     setTimeout(() => setCopiedId(null), 1800)
   }, [])
 
-  const createFolder = () => {
+  const createFolder = async () => {
     if (!folderName.trim()) return
+    if (!(await ensureSepolia())) return
     writeContract({
       address: CONTRACT_ADDRESS as `0x${string}`,
       abi: FHENIX_DROPBOX_ABI,
       functionName: "createFolder",
       args: [folderName.trim(), "#111111"],
+      chainId: sepolia.id,
     })
     setFolderName("")
   }
 
-  const createTeam = () => {
+  const createTeam = async () => {
     if (!teamName.trim()) return
+    if (!(await ensureSepolia())) return
     writeContract({
       address: CONTRACT_ADDRESS as `0x${string}`,
       abi: FHENIX_DROPBOX_ABI,
       functionName: "createTeam",
       args: [teamName.trim()],
+      chainId: sepolia.id,
     })
     setTeamName("")
   }
 
-  const addTeamMember = () => {
+  const addTeamMember = async () => {
     const selectedTeam = teams[0]
     if (!selectedTeam || !teamMember.trim()) return
+    if (!(await ensureSepolia())) return
     writeContract({
       address: CONTRACT_ADDRESS as `0x${string}`,
       abi: FHENIX_DROPBOX_ABI,
       functionName: "addTeamMember",
       args: [selectedTeam.id, teamMember.trim() as `0x${string}`, TEAM_ROLES.editor],
+      chainId: sepolia.id,
     })
     setTeamMember("")
   }
 
-  const shareFolderWithTeam = () => {
+  const shareFolderWithTeam = async () => {
     if (!teamShareId || activeFolder === "all" || activeFolder === "0") return
+    if (!(await ensureSepolia())) return
     writeContract({
       address: CONTRACT_ADDRESS as `0x${string}`,
       abi: FHENIX_DROPBOX_ABI,
       functionName: "grantFolderToTeam",
       args: [BigInt(activeFolder), BigInt(teamShareId), TEAM_ROLES.viewer],
+      chainId: sepolia.id,
     })
   }
 
-  const moveFile = (fileId: string, folderId: string) => {
+  const moveFile = async (fileId: string, folderId: string) => {
+    if (!(await ensureSepolia())) return
     writeContract({
       address: CONTRACT_ADDRESS as `0x${string}`,
       abi: FHENIX_DROPBOX_ABI,
       functionName: "moveFileToFolder",
       args: [BigInt(fileId), BigInt(folderId)],
+      chainId: sepolia.id,
     })
   }
 
-  const toggleAnonymous = (fileId: string, currentValue: boolean) => {
+  const toggleAnonymous = async (fileId: string, currentValue: boolean) => {
+    if (!(await ensureSepolia())) return
     writeContract({
       address: CONTRACT_ADDRESS as `0x${string}`,
       abi: FHENIX_DROPBOX_ABI,
       functionName: "updateFilePrivacy",
       args: [BigInt(fileId), !currentValue],
+      chainId: sepolia.id,
     })
   }
 
@@ -422,13 +451,15 @@ export default function FilesPage() {
     }))
   }
 
-  const createSubscriptionPlan = (fileId: string) => {
+  const createSubscriptionPlan = async (fileId: string) => {
     const draft = planDrafts[fileId] || { price: "0.001", periodDays: "7" }
+    if (!(await ensureSepolia())) return
     writeContract({
       address: CONTRACT_ADDRESS as `0x${string}`,
       abi: FHENIX_DROPBOX_ABI,
       functionName: "createSubscriptionPlan",
       args: [BigInt(fileId), parseNativePrice(draft.price), BigInt(draft.periodDays) * 24n * 60n * 60n, 12n],
+      chainId: sepolia.id,
     })
   }
 
@@ -448,11 +479,13 @@ export default function FilesPage() {
     }
 
     try {
+      if (!(await ensureSepolia())) return
       const hash = await writeContractAsync({
         address: CONTRACT_ADDRESS as `0x${string}`,
         abi: FHENIX_DROPBOX_ABI,
         functionName: "batchDownloadFiles",
         args: [selectedIds.map((id) => BigInt(id))],
+        chainId: sepolia.id,
       })
       setPendingBatch({ ids: selectedIds, hash })
     } catch (error) {
@@ -564,10 +597,10 @@ export default function FilesPage() {
               />
               <button
                 onClick={createFolder}
-                disabled={isWriting || isWaiting}
+                disabled={isWriting || isWaiting || isSwitchingChain}
                 className="rounded-lg bg-[#111] px-3 text-white disabled:opacity-50"
               >
-                {isWriting || isWaiting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderPlus className="h-4 w-4" />}
+                {isWriting || isWaiting || isSwitchingChain ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderPlus className="h-4 w-4" />}
               </button>
             </div>
           </div>
@@ -597,7 +630,7 @@ export default function FilesPage() {
                   placeholder="New team"
                   className="min-w-0 flex-1 rounded-lg border border-black/[0.08] bg-black/[0.02] px-3 py-2 text-sm"
                 />
-                <button onClick={createTeam} disabled={isWriting || isWaiting} className="rounded-lg bg-[#111] px-3 text-white disabled:opacity-50">
+                <button onClick={createTeam} disabled={isWriting || isWaiting || isSwitchingChain} className="rounded-lg bg-[#111] px-3 text-white disabled:opacity-50">
                   <Users className="h-4 w-4" />
                 </button>
               </div>
@@ -609,7 +642,7 @@ export default function FilesPage() {
               />
               <button
                 onClick={addTeamMember}
-                disabled={teams.length === 0 || !teamMember.trim() || isWriting || isWaiting}
+                disabled={teams.length === 0 || !teamMember.trim() || isWriting || isWaiting || isSwitchingChain}
                 className="w-full rounded-lg border border-black/[0.08] px-3 py-2 text-xs font-medium disabled:opacity-50"
               >
                 Add to first team
@@ -626,7 +659,7 @@ export default function FilesPage() {
               </select>
               <button
                 onClick={shareFolderWithTeam}
-                disabled={!teamShareId || activeFolder === "all" || activeFolder === "0" || isWriting || isWaiting}
+                disabled={!teamShareId || activeFolder === "all" || activeFolder === "0" || isWriting || isWaiting || isSwitchingChain}
                 className="w-full rounded-lg bg-[#111] px-3 py-2 text-xs font-medium text-white disabled:opacity-50"
               >
                 Grant viewer access
@@ -656,10 +689,10 @@ export default function FilesPage() {
             </div>
             <button
               onClick={runBatchDownload}
-              disabled={selectedFiles.length === 0 || isWriting || isWaiting}
+              disabled={selectedFiles.length === 0 || isWriting || isWaiting || isSwitchingChain}
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#111] px-4 py-3 text-sm font-medium text-white disabled:opacity-50"
             >
-              {isWriting || isWaiting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {isWriting || isWaiting || isSwitchingChain ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
               Batch Download ({selectedFiles.length})
             </button>
           </div>

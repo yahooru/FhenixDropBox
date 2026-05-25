@@ -129,9 +129,16 @@ function randomHex32(): Hex {
   return `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`
 }
 
+function friendlyTransactionError(error: Error) {
+  if (error.message.includes("does not match the target chain")) {
+    return `Switch your wallet to ${sepolia.name} before registering files on-chain.`
+  }
+  return error.message || "Transaction was not submitted"
+}
+
 export default function UploadPage() {
-  const { address, isConnected, chain } = useAccount()
-  const { switchChain, isPending: isSwitchingChain } = useSwitchChain()
+  const { address, isConnected, chain, chainId: walletChainId } = useAccount()
+  const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain()
   const { signMessageAsync } = useSignMessage()
   const { data: walletClient } = useWalletClient({ chainId: sepolia.id })
   const { writeContract, data: txHash, isPending, error: writeError } = useWriteContract()
@@ -183,7 +190,7 @@ export default function UploadPage() {
 
   useEffect(() => {
     if (!writeError) return
-    setNotice(writeError.message || "Transaction was not submitted")
+    setNotice(friendlyTransactionError(writeError))
     setDeploying(false)
     setCofheStep(null)
   }, [writeError])
@@ -197,7 +204,7 @@ export default function UploadPage() {
 
   const readyFiles = useMemo(() => files.filter((file) => file.uploaded && file.ipfsHash), [files])
   const uploadProgress = files.length === 0 ? 0 : Math.round((readyFiles.length / files.length) * 100)
-  const wrongNetwork = !!chain && chain.id !== sepolia.id
+  const wrongNetwork = isConnected && walletChainId !== sepolia.id
 
   const updateFile = useCallback((id: string, patch: Partial<FileItem>) => {
     setFiles((prev) => prev.map((file) => (file.id === id ? { ...file, ...patch } : file)))
@@ -416,7 +423,13 @@ export default function UploadPage() {
   const handleDeploy = async () => {
     if (!address || readyFiles.length === 0) return
     if (wrongNetwork) {
-      switchChain({ chainId: sepolia.id })
+      setNotice(`Switching wallet to ${sepolia.name}...`)
+      try {
+        await switchChainAsync({ chainId: sepolia.id })
+        setNotice(`Wallet switched to ${sepolia.name}. Click register again to submit on-chain.`)
+      } catch (error) {
+        setNotice(error instanceof Error ? friendlyTransactionError(error) : `Please switch your wallet to ${sepolia.name}.`)
+      }
       return
     }
 
@@ -790,7 +803,7 @@ export default function UploadPage() {
                 <AlertCircle className="h-4 w-4" />
                 Transaction failed
               </div>
-              <p className="break-words text-xs text-red-600/85">{writeError.message}</p>
+              <p className="break-words text-xs text-red-600/85">{friendlyTransactionError(writeError)}</p>
             </div>
           )}
 
