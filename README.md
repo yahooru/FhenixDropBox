@@ -21,8 +21,10 @@ Live app: https://fhenixdropbox.vercel.app
 ## Deployment
 
 - Network: Ethereum Sepolia
+- Current Wave 5 contract: `0x80437029FA1a8367A83dA2860091aeA98Cf2D3bC`
 - The configured `NEXT_PUBLIC_CONTRACT_ADDRESS` must pass `npm run production:check`, which verifies the deployed bytecode matches the local `FhenixDropBox` artifact.
 - After deploying Wave 5, update `.env.local` and your hosting environment with the new contract address.
+- The trusted relayer must remain funded on Sepolia for anonymous relayed uploads.
 
 ## How It Works
 
@@ -57,7 +59,7 @@ Live app: https://fhenixdropbox.vercel.app
 ### Wave 3 - Rich File Rules
 
 - Multi-file upload, up to 10 files per batch.
-- Public previews for images and PDFs.
+- Public previews for images.
 - 24h, 7d, 30d, or no-expiry links.
 - Native ETH payment and refund handling.
 - Batch download accounting.
@@ -132,6 +134,19 @@ npm run monitor:sepolia
 npm run webhook:worker
 npm run dev
 ```
+
+Final release verification:
+
+```bash
+npm run lint
+npm run build
+npm run test
+npm run production:check
+npm run monitor:sepolia
+npm run webhook:worker
+```
+
+The final Wave 5 flow is expected to run on Sepolia end to end: upload pins encrypted bytes to IPFS, writes file access rules on-chain, creates secret share links, supports recipient payment/access/download, and routes anonymous uploads through the trusted relayer.
 
 Deploy to Sepolia:
 
