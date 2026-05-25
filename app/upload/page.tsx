@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { useAccount, useReadContract, useSignMessage, useSwitchChain, useWaitForTransactionReceipt, useWalletClient, useWriteContract } from "wagmi"
+import { useAccount, useReadContract, useSwitchChain, useWaitForTransactionReceipt, useWalletClient, useWriteContract } from "wagmi"
 import { sepolia } from "wagmi/chains"
 import { getAddress, keccak256, parseEventLogs, toBytes, type Hex } from "viem"
 import { QRCodeSVG } from "qrcode.react"
@@ -139,8 +139,7 @@ function friendlyTransactionError(error: Error) {
 export default function UploadPage() {
   const { address, isConnected, chain, chainId: walletChainId } = useAccount()
   const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain()
-  const { signMessageAsync } = useSignMessage()
-  const { data: walletClient } = useWalletClient({ chainId: sepolia.id })
+  const { data: walletClient } = useWalletClient()
   const { writeContract, data: txHash, isPending, error: writeError } = useWriteContract()
   const { data: receipt, isLoading: isWaiting, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
 
@@ -206,6 +205,16 @@ export default function UploadPage() {
   const uploadProgress = files.length === 0 ? 0 : Math.round((readyFiles.length / files.length) * 100)
   const wrongNetwork = isConnected && walletChainId !== sepolia.id
 
+  const signWithWallet = useCallback(async (message: string | { raw: Hex }) => {
+    if (!address || !walletClient) {
+      throw new Error("Connected wallet is not ready to sign. Reconnect your wallet and try again.")
+    }
+    return walletClient.signMessage({
+      account: address as Hex,
+      message,
+    })
+  }, [address, walletClient])
+
   const updateFile = useCallback((id: string, patch: Partial<FileItem>) => {
     setFiles((prev) => prev.map((file) => (file.id === id ? { ...file, ...patch } : file)))
   }, [])
@@ -216,7 +225,7 @@ export default function UploadPage() {
 
       const uploadAuth = {
         owner: address as `0x${string}`,
-        signMessage: (message: string) => signMessageAsync({ message }),
+        signMessage: (message: string) => signWithWallet(message),
       }
       let fileToUpload = item.file
       let encryptionKey: string | null = null
@@ -255,7 +264,7 @@ export default function UploadPage() {
         error: error instanceof Error ? error.message : "Upload failed",
       })
     }
-  }, [address, signMessageAsync, updateFile])
+  }, [address, signWithWallet, updateFile])
 
   const addFiles = useCallback((fileList: File[]) => {
     setNotice(null)
@@ -386,7 +395,7 @@ export default function UploadPage() {
       expiresAt,
       contractAddress: CONTRACT_ADDRESS as Hex,
     })
-    const signature = await signMessageAsync({ message: { raw: intentHash } })
+    const signature = await signWithWallet({ raw: intentHash })
     const response = await fetch("/api/relayer/upload", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -418,7 +427,7 @@ export default function UploadPage() {
     if (result.transactionHash) {
       setNotice(`Anonymous upload relayed on-chain: ${result.transactionHash.slice(0, 10)}...${result.transactionHash.slice(-8)}`)
     }
-  }, [address, finalizeDeployedBatch, readyFiles.length, signMessageAsync])
+  }, [address, finalizeDeployedBatch, readyFiles.length, signWithWallet])
 
   const handleDeploy = async () => {
     if (!address || readyFiles.length === 0) return
