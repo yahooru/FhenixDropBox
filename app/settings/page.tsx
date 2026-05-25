@@ -35,6 +35,8 @@ import {
   type WebhookInfo,
 } from "@/lib/fhenix"
 import { DEFAULT_PREFERENCES, getPreferences, savePreferences, type AppPreferences } from "@/lib/preferences"
+import { copyTextToClipboard } from "@/lib/clipboard"
+import { getAllLocalFileSecrets } from "@/lib/share-links"
 import {
   WEBHOOK_ALL_EVENT_MASK,
   buildWebhookTargetRegistrationMessage,
@@ -139,6 +141,7 @@ export default function SettingsPage() {
   const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain()
   const { data: walletClient } = useWalletClient()
   const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
   const [copied, setCopied] = useState(false)
   const [copiedContract, setCopiedContract] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -154,14 +157,20 @@ export default function SettingsPage() {
   } | null>(null)
   const [handledWebhookTargetTx, setHandledWebhookTargetTx] = useState<string | null>(null)
   const { writeContract, data: webhookTxHash, isPending: webhookPending, error: webhookWriteError } = useWriteContract()
-  const { data: webhookReceipt, isLoading: webhookWaiting, isSuccess: webhookSuccess } = useWaitForTransactionReceipt({ hash: webhookTxHash })
+  const { data: webhookReceipt, isLoading: webhookWaiting, isSuccess: webhookSuccess } = useWaitForTransactionReceipt({ hash: webhookTxHash, chainId: sepolia.id })
   const wrongNetwork = isConnected && walletChainId !== sepolia.id
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const { data: webhookIds, refetch: refetchWebhookIds } = useReadContract({
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
     functionName: "getMyWebhooks",
-    query: { enabled: isConnected },
+    account: address,
+    chainId: sepolia.id,
+    query: { enabled: mounted && isConnected && !!address },
   })
 
   const webhookIdList = useMemo(() => (
@@ -173,11 +182,12 @@ export default function SettingsPage() {
     abi: FHENIX_DROPBOX_ABI,
     functionName: "webhooks",
     args: [BigInt(id)],
+    chainId: sepolia.id,
   })), [webhookIdList])
 
   const { data: webhookReads, refetch: refetchWebhookReads } = useReadContracts({
     contracts: webhookContracts,
-    query: { enabled: isConnected && webhookContracts.length > 0 },
+    query: { enabled: mounted && isConnected && !!address && webhookContracts.length > 0 },
   })
 
   const webhooks = useMemo(() => (
@@ -192,25 +202,28 @@ export default function SettingsPage() {
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
     functionName: "getStats",
-    query: { enabled: isConnected },
+    account: address,
+    chainId: sepolia.id,
+    query: { enabled: mounted && isConnected && !!address },
   })
 
+  const localSecrets = useMemo(() => (address && mounted ? getAllLocalFileSecrets(address) : []), [address, mounted])
   const statTuple = Array.isArray(stats) ? stats : [0n, 0n, 0n, 0n]
   const totalFiles = Number(statTuple[0] || 0n)
   const totalDownloads = Number(statTuple[1] || 0n)
   const totalVolume = BigInt(statTuple[2] || 0n)
-  const myFileCount = Number(statTuple[3] || 0n)
+  const myFileCount = Math.max(Number(statTuple[3] || 0n), localSecrets.length)
 
-  const handleCopyAddress = () => {
+  const handleCopyAddress = async () => {
     if (address) {
-      navigator.clipboard.writeText(address)
+      await copyTextToClipboard(address)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
   }
 
-  const handleCopyContract = () => {
-    navigator.clipboard.writeText(CONTRACT_ADDRESS)
+  const handleCopyContract = async () => {
+    await copyTextToClipboard(CONTRACT_ADDRESS)
     setCopiedContract(true)
     setTimeout(() => setCopiedContract(false), 2000)
   }
@@ -599,7 +612,7 @@ export default function SettingsPage() {
           )}
           <div className="px-6 py-3 bg-emerald-50/60 border-t border-emerald-100/50 flex items-center gap-2">
             <Lock className="w-3.5 h-3.5 text-emerald-600" />
-            <span className="text-xs text-emerald-700">Wave 3 privacy controls are active. Save settings to apply defaults to new uploads.</span>
+            <span className="text-xs text-emerald-700">Privacy controls are active. Save settings to apply defaults to new uploads.</span>
           </div>
         </div>
       )}
@@ -854,23 +867,6 @@ export default function SettingsPage() {
           </>
         )}
       </button>
-
-      {/* Danger Zone */}
-      <div className="bg-white rounded-2xl border border-red-200 overflow-hidden">
-        <div className="px-6 py-4 border-b border-red-100 bg-red-50/50">
-          <h2 className="font-medium text-red-700">Danger Zone</h2>
-        </div>
-        <div className="px-6 py-4 flex items-center justify-between">
-          <div>
-            <div className="text-sm font-medium">Delete Account</div>
-            <div className="text-xs text-black/50 mt-0.5">Permanently delete your account and all associated data</div>
-          </div>
-          <button className="px-4 py-2 rounded-lg border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 transition-colors flex items-center gap-2">
-            <Lock className="w-3 h-3" />
-            Delete Account
-          </button>
-        </div>
-      </div>
 
       {/* Footer */}
       <div className="text-center text-xs text-black/30 pb-4">
