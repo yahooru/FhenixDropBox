@@ -2,7 +2,7 @@
 
 import { use, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { useAccount, useConnect, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
+import { useAccount, useConnect, useReadContract, useReadContracts, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { sepolia } from "wagmi/chains"
 import {
   AlertCircle,
@@ -88,8 +88,9 @@ function PreviewPanel({ metadata }: { metadata?: FileMetadata }) {
 }
 
 function ShareContent({ fileId }: { fileId: number }) {
-  const { address, isConnected } = useAccount()
+  const { address, isConnected, chainId: walletChainId } = useAccount()
   const { connect, connectors, isPending: isConnecting } = useConnect()
+  const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain()
   const [mounted, setMounted] = useState(false)
   const [accessCode, setAccessCode] = useState("")
   const [showAccessCode, setShowAccessCode] = useState(false)
@@ -207,8 +208,9 @@ function ShareContent({ fileId }: { fileId: number }) {
   const isAnonymousShare = filePrivacy?.anonymousUpload || shareSecret.anonymous || anonymousHint
   const accessCodeRequired = !!fileInfo?.hasPassword
   const accessCodeMissing = accessCodeRequired && accessCode.trim().length === 0
-  const accessSubmitDisabled = isRequestingAccess || isWaitingAccess || accessCodeMissing
-  const subscriptionSubmitDisabled = !isConnected || isSubscribing || isWaitingSubscribe || accessCodeMissing
+  const wrongNetwork = isConnected && walletChainId !== sepolia.id
+  const accessSubmitDisabled = isRequestingAccess || isWaitingAccess || isSwitchingChain || accessCodeMissing
+  const subscriptionSubmitDisabled = !isConnected || isSubscribing || isWaitingSubscribe || isSwitchingChain || accessCodeMissing
 
   useEffect(() => {
     if (accessSuccess || subscribeSuccess) {
@@ -223,9 +225,24 @@ function ShareContent({ fileId }: { fileId: number }) {
   useEffect(() => {
     const writeError = accessWriteError || subscribeWriteError || downloadWriteError
     if (!writeError) return
-    setError(writeError.message || "Transaction was not submitted.")
+    setError(writeError.message.includes("does not match the target chain")
+      ? `Switch your wallet to ${sepolia.name} before submitting this transaction.`
+      : writeError.message || "Transaction was not submitted.")
     setDownloading(false)
   }, [accessWriteError, downloadWriteError, subscribeWriteError])
+
+  const ensureSepolia = async () => {
+    if (!wrongNetwork) return true
+    setError(`Switching wallet to ${sepolia.name}...`)
+    try {
+      await switchChainAsync({ chainId: sepolia.id })
+      setError(`Wallet switched to ${sepolia.name}. Click the action again to submit on-chain.`)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : `Please switch your wallet to ${sepolia.name}.`)
+    }
+    setDownloading(false)
+    return false
+  }
 
   useEffect(() => {
     if (!downloadSuccess || !downloadTxHash || !fileInfo?.ipfsHash || processedDownloadTxHash === downloadTxHash) return
@@ -260,7 +277,7 @@ function ShareContent({ fileId }: { fileId: number }) {
     void fetchAndDownload()
   }, [downloadSuccess, downloadTxHash, fileInfo, fileName, mimeType, processedDownloadTxHash, refetchAccess, shareSecret.iv, shareSecret.key])
 
-  const handleRequestAccess = () => {
+  const handleRequestAccess = async () => {
     if (!fileInfo || !isConnected) return
 
     setError(null)
@@ -268,6 +285,7 @@ function ShareContent({ fileId }: { fileId: number }) {
       setError("Enter the access code before submitting this transaction.")
       return
     }
+    if (!(await ensureSepolia())) return
     const accessCodeHash = accessCode ? hashPassword(accessCode) : ZERO_BYTES32
 
     requestAccess({
@@ -280,13 +298,14 @@ function ShareContent({ fileId }: { fileId: number }) {
     })
   }
 
-  const handleSubscribe = () => {
+  const handleSubscribe = async () => {
     if (!primarySubscriptionPlan || !isConnected) return
     setError(null)
     if (fileInfo?.hasPassword && accessCode.trim().length === 0) {
       setError("Enter the access code before subscribing.")
       return
     }
+    if (!(await ensureSepolia())) return
     subscribe({
       address: CONTRACT_ADDRESS as `0x${string}`,
       abi: FHENIX_DROPBOX_ABI,
@@ -297,12 +316,13 @@ function ShareContent({ fileId }: { fileId: number }) {
     })
   }
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!fileInfo?.ipfsHash) return
     if (!hasSecret) {
       setError("Missing decryption key. Ask the sender for the full secret link.")
       return
     }
+    if (!(await ensureSepolia())) return
 
     setDownloading(true)
     setError(null)
@@ -516,10 +536,10 @@ function ShareContent({ fileId }: { fileId: number }) {
                   {canDownload && (
                     <button
                       onClick={handleDownload}
-                      disabled={downloading || isDownloadingTx || isWaitingDownload}
+                      disabled={downloading || isDownloadingTx || isWaitingDownload || isSwitchingChain}
                       className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#111] py-4 text-sm font-medium text-white disabled:opacity-60"
                     >
-                      {downloading || isDownloadingTx || isWaitingDownload ? (
+                      {downloading || isDownloadingTx || isWaitingDownload || isSwitchingChain ? (
                         <>
                           <Loader2 className="h-4 w-4 animate-spin" />
                           Downloading...

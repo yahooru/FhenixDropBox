@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { useAccount, useReadContract, useReadContracts, useSignMessage, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
+import { useAccount, useReadContract, useReadContracts, useSignMessage, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { sepolia } from "wagmi/chains"
 import { getAddress, parseEventLogs } from "viem"
 import { useTheme } from "next-themes"
@@ -134,7 +134,8 @@ function ThemeOption({ theme, label, gradient, active, onClick }: ThemeOptionPro
 
 export default function SettingsPage() {
   const router = useRouter()
-  const { address, isConnected } = useAccount()
+  const { address, isConnected, chainId: walletChainId } = useAccount()
+  const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain()
   const { signMessageAsync } = useSignMessage()
   const { theme, setTheme } = useTheme()
   const [copied, setCopied] = useState(false)
@@ -153,6 +154,7 @@ export default function SettingsPage() {
   const [handledWebhookTargetTx, setHandledWebhookTargetTx] = useState<string | null>(null)
   const { writeContract, data: webhookTxHash, isPending: webhookPending, error: webhookWriteError } = useWriteContract()
   const { data: webhookReceipt, isLoading: webhookWaiting, isSuccess: webhookSuccess } = useWaitForTransactionReceipt({ hash: webhookTxHash })
+  const wrongNetwork = isConnected && walletChainId !== sepolia.id
 
   const { data: webhookIds, refetch: refetchWebhookIds } = useReadContract({
     address: CONTRACT_ADDRESS as `0x${string}`,
@@ -232,9 +234,23 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (!webhookWriteError) return
-    setWebhookNotice(webhookWriteError.message || "Webhook transaction was not submitted.")
+    setWebhookNotice(webhookWriteError.message.includes("does not match the target chain")
+      ? `Switch your wallet to ${sepolia.name} before registering webhooks.`
+      : webhookWriteError.message || "Webhook transaction was not submitted.")
     setPendingWebhookTarget(null)
   }, [webhookWriteError])
+
+  const ensureSepolia = async () => {
+    if (!wrongNetwork) return true
+    setWebhookNotice(`Switching wallet to ${sepolia.name}...`)
+    try {
+      await switchChainAsync({ chainId: sepolia.id })
+      setWebhookNotice(`Wallet switched to ${sepolia.name}. Click register again to submit on-chain.`)
+    } catch (error) {
+      setWebhookNotice(error instanceof Error ? error.message : `Please switch your wallet to ${sepolia.name}.`)
+    }
+    return false
+  }
 
   useEffect(() => {
     if (!webhookSuccess || !webhookReceipt || !pendingWebhookTarget || !webhookTxHash || !address) return
@@ -324,9 +340,10 @@ export default function SettingsPage() {
     webhookTxHash,
   ])
 
-  const handleRegisterWebhook = () => {
+  const handleRegisterWebhook = async () => {
     const endpoint = webhookUrl.trim()
     if (!endpoint) return
+    if (!(await ensureSepolia())) return
     const label = webhookLabel.trim() || "Production webhook"
     const eventMask = WEBHOOK_ALL_EVENT_MASK
 
@@ -343,6 +360,7 @@ export default function SettingsPage() {
         label,
         eventMask,
       ],
+      chainId: sepolia.id,
     })
   }
 
@@ -726,10 +744,10 @@ export default function SettingsPage() {
               />
               <button
                 onClick={handleRegisterWebhook}
-                disabled={!webhookUrl.trim() || webhookPending || webhookWaiting || !!pendingWebhookTarget}
+                disabled={!webhookUrl.trim() || webhookPending || webhookWaiting || isSwitchingChain || !!pendingWebhookTarget}
                 className="rounded-xl bg-[#111] px-5 py-3 text-sm font-medium text-white disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {webhookPending || webhookWaiting || pendingWebhookTarget ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {webhookPending || webhookWaiting || isSwitchingChain || pendingWebhookTarget ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 Register
               </button>
             </div>
