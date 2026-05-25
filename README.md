@@ -4,7 +4,7 @@ Privacy-first decentralized file sharing for the Fhenix ecosystem.
 
 FhenixDropBox lets a user encrypt files in the browser, pin the encrypted payload to IPFS, register access rules on Sepolia, and share a secret link that keeps the file key off-chain. The app is now wired as a Wave 5 product with CoFHE encrypted rule mirrors, team folders, subscriptions, relayed anonymous upload support, resumable IPFS uploads, webhook delivery, analytics indexing, and deployment monitoring.
 
-Live app: https://fhenixdropbox.vercel.app
+Live app: [https://fhenixdropbox.vercel.app](https://fhenixdropbox.vercel.app)
 
 ## What It Does
 
@@ -157,23 +157,20 @@ npm run verify:sepolia -- <deployed_contract_address>
 
 ## Routes
 
-| Route | Purpose |
-| --- | --- |
-| `/` | Product landing page |
-| `/dashboard` | Wallet dashboard and contract stats |
-| `/upload` | Encrypt, upload, preview, and register files |
-| `/files` | Manage files, folders, QR links, anonymous mode, and batch downloads |
-| `/share/[id]` | Recipient access, payment, decrypt, and download flow |
-| `/settings` | Defaults, privacy controls, webhooks, and appearance |
-| `/api/ipfs/resumable` | Chunked large-file upload assembly and Pinata pinning |
-| `/api/relayer/upload` | Trusted relayer upload endpoint for anonymous mode |
-| `/api/webhooks/deliver` | Webhook delivery endpoint with on-chain endpoint-hash validation |
-| `/api/analytics` | Production analytics event-indexing endpoint |
 
-## Notes
+| Route                   | Purpose                                                              |
+| ----------------------- | -------------------------------------------------------------------- |
+| `/`                     | Product landing page                                                 |
+| `/dashboard`            | Wallet dashboard and contract stats                                  |
+| `/upload`               | Encrypt, upload, preview, and register files                         |
+| `/files`                | Manage files, folders, QR links, anonymous mode, and batch downloads |
+| `/share/[id]`           | Recipient access, payment, decrypt, and download flow                |
+| `/settings`             | Defaults, privacy controls, webhooks, and appearance                 |
+| `/api/ipfs/resumable`   | Chunked large-file upload assembly and Pinata pinning                |
+| `/api/relayer/upload`   | Trusted relayer upload endpoint for anonymous mode                   |
+| `/api/webhooks/deliver` | Webhook delivery endpoint with on-chain endpoint-hash validation     |
+| `/api/analytics`        | Production analytics event-indexing endpoint                         |
 
-- The current production path is AES-encrypted IPFS delivery plus Sepolia-enforced access rules and CoFHE encrypted rule mirrors.
-- File keys are not stored on-chain.
-- Access code values are not stored directly; the contract stores hashes.
-- CoFHE encrypted handles are available for authorized decrypt views while public rule fields continue enforcing payments, expiry, and download limits on Sepolia.
-- Pinata credentials must be rotated before any public launch if the previous development credentials were exposed.
+
+##  
+
