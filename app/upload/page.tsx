@@ -38,6 +38,7 @@ import { formatFileSize, generateEncryptionKey, generateIV, uploadToIPFSViaAPI }
 import { getPreferences } from "@/lib/preferences"
 import { MAX_RELAYER_INTENT_TTL_SECONDS, buildRelayerIntentHash, serializeRelayerInputs } from "@/lib/relayer"
 import { buildShareUrl, saveLocalFileSecrets, type LocalFileSecret } from "@/lib/share-links"
+import { signWalletMessage } from "@/lib/wallet-signing"
 
 const MAX_FILES = 10
 const RESUMABLE_UPLOADS_ENABLED = process.env.NEXT_PUBLIC_ENABLE_RESUMABLE_UPLOADS === "true"
@@ -137,7 +138,7 @@ function friendlyTransactionError(error: Error) {
 }
 
 export default function UploadPage() {
-  const { address, isConnected, chain, chainId: walletChainId } = useAccount()
+  const { address, isConnected, chain, chainId: walletChainId, connector } = useAccount()
   const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain()
   const { data: walletClient } = useWalletClient()
   const { writeContract, data: txHash, isPending, error: writeError } = useWriteContract()
@@ -206,14 +207,16 @@ export default function UploadPage() {
   const wrongNetwork = isConnected && walletChainId !== sepolia.id
 
   const signWithWallet = useCallback(async (message: string | { raw: Hex }) => {
-    if (!address || !walletClient) {
-      throw new Error("Connected wallet is not ready to sign. Reconnect your wallet and try again.")
+    if (!address) {
+      throw new Error("Connect your wallet before signing.")
     }
-    return walletClient.signMessage({
+    return signWalletMessage({
       account: address as Hex,
       message,
+      walletClient,
+      connector,
     })
-  }, [address, walletClient])
+  }, [address, connector, walletClient])
 
   const updateFile = useCallback((id: string, patch: Partial<FileItem>) => {
     setFiles((prev) => prev.map((file) => (file.id === id ? { ...file, ...patch } : file)))
@@ -649,7 +652,7 @@ export default function UploadPage() {
             <h2 className="font-medium">Access Rules</h2>
             <p className="mt-1 text-xs text-black/45">Applied to every file in this batch.</p>
 
-            <div className="mt-5 space-y-4">
+            <form className="mt-5 space-y-4" onSubmit={(event) => event.preventDefault()}>
               <div>
                 <label className="mb-2 flex items-center gap-2 text-sm font-medium">
                   <Lock className="h-4 w-4 text-black/40" />
@@ -676,6 +679,7 @@ export default function UploadPage() {
                 <div className="relative">
                   <input
                     type={showAccessCode ? "text" : "password"}
+                    autoComplete="off"
                     value={accessRules.accessCode}
                     onChange={(event) => setAccessRules({ ...accessRules, accessCode: event.target.value })}
                     placeholder="Optional PIN"
@@ -782,7 +786,7 @@ export default function UploadPage() {
                   className="h-5 w-5"
                 />
               </label>
-            </div>
+            </form>
           </div>
 
           <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-800">
