@@ -2,7 +2,7 @@
 
 import { use, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { useAccount, useConnect, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
+import { useAccount, useConnect, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { sepolia } from "wagmi/chains"
 import {
   AlertCircle,
@@ -10,6 +10,7 @@ import {
   CheckCircle,
   CheckCircle2,
   Copy,
+  CreditCard,
   DollarSign,
   Download,
   Eye,
@@ -34,9 +35,11 @@ import {
   tupleToFileInfo,
   tupleToFileMetadata,
   tupleToFilePrivacy,
+  tupleToSubscriptionPlanInfo,
   type FilePrivacy,
   type FileInfo,
   type FileMetadata,
+  type SubscriptionPlanInfo,
 } from "@/lib/fhenix"
 import { decryptFile, formatFileSize, getFromIPFS, getIPFSUrl } from "@/lib/ipfs"
 import { parseShareSecret, type ShareSecret } from "@/lib/share-links"
@@ -72,14 +75,11 @@ function PreviewPanel({ metadata }: { metadata?: FileMetadata }) {
 
   const previewUrl = getIPFSUrl(metadata.previewHash)
   const isImage = metadata.mimeType.startsWith("image/")
-  const isPdf = metadata.mimeType === "application/pdf"
 
   return (
     <div className="bg-black/[0.03]">
       {isImage ? (
         <img src={previewUrl} alt={metadata.fileName || "File preview"} className="h-80 w-full object-contain" />
-      ) : isPdf ? (
-        <iframe title="PDF preview" src={previewUrl} className="h-96 w-full border-0" />
       ) : (
         <div className="flex h-64 items-center justify-center text-sm text-black/45">Preview available after access.</div>
       )}
@@ -96,6 +96,7 @@ function ShareContent({ fileId }: { fileId: number }) {
   const [error, setError] = useState<string | null>(null)
   const [downloading, setDownloading] = useState(false)
   const [downloaded, setDownloaded] = useState(false)
+  const [processedDownloadTxHash, setProcessedDownloadTxHash] = useState<`0x${string}` | null>(null)
   const [shareSecret, setShareSecret] = useState<ShareSecret>({})
   const [anonymousHint, setAnonymousHint] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -122,13 +123,13 @@ function ShareContent({ fileId }: { fileId: number }) {
     query: { enabled: mounted && fileId >= 0 },
   })
 
-  const { data: accessInfo, refetch: refetchAccess } = useReadContract({
+  const { data: rawAccessInfo, refetch: refetchAccess } = useReadContract({
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
     functionName: "getAccessInfo",
     args: [BigInt(fileId)],
     query: { enabled: mounted && !!address && fileId >= 0 },
-  }) as { data: AccessInfo | undefined; refetch: () => Promise<unknown> }
+  }) as { data: readonly [boolean, boolean] | AccessInfo | undefined; refetch: () => Promise<unknown> }
 
   const { data: fileOwner } = useReadContract({
     address: CONTRACT_ADDRESS as `0x${string}`,
@@ -146,15 +147,51 @@ function ShareContent({ fileId }: { fileId: number }) {
     query: { enabled: mounted && fileId >= 0 },
   })
 
-  const { writeContract: requestAccess, data: accessTxHash, isPending: isRequestingAccess } = useWriteContract()
+  const { data: rawPlanIds } = useReadContract({
+    address: CONTRACT_ADDRESS as `0x${string}`,
+    abi: FHENIX_DROPBOX_ABI,
+    functionName: "getFileSubscriptionPlans",
+    args: [BigInt(fileId)],
+    query: { enabled: mounted && fileId >= 0 },
+  })
+
+  const planIds = useMemo(() => (Array.isArray(rawPlanIds) ? rawPlanIds.map((id) => id.toString()) : []), [rawPlanIds])
+  const planContracts = useMemo(() => planIds.map((id) => ({
+    address: CONTRACT_ADDRESS as `0x${string}`,
+    abi: FHENIX_DROPBOX_ABI,
+    functionName: "subscriptionPlans",
+    args: [BigInt(id)],
+  })), [planIds])
+  const { data: rawPlans } = useReadContracts({
+    contracts: planContracts,
+    query: { enabled: mounted && planContracts.length > 0 },
+  })
+
+  const { writeContract: requestAccess, data: accessTxHash, isPending: isRequestingAccess, error: accessWriteError } = useWriteContract()
   const { isLoading: isWaitingAccess, isSuccess: accessSuccess } = useWaitForTransactionReceipt({ hash: accessTxHash })
 
-  const { writeContract: recordDownload, data: downloadTxHash, isPending: isDownloadingTx } = useWriteContract()
+  const { writeContract: subscribe, data: subscribeTxHash, isPending: isSubscribing, error: subscribeWriteError } = useWriteContract()
+  const { isLoading: isWaitingSubscribe, isSuccess: subscribeSuccess } = useWaitForTransactionReceipt({ hash: subscribeTxHash })
+
+  const { writeContract: recordDownload, data: downloadTxHash, isPending: isDownloadingTx, error: downloadWriteError } = useWriteContract()
   const { isLoading: isWaitingDownload, isSuccess: downloadSuccess } = useWaitForTransactionReceipt({ hash: downloadTxHash })
 
   const fileInfo = useMemo<FileInfo | undefined>(() => tupleToFileInfo(rawFileInfo), [rawFileInfo])
   const metadata = useMemo<FileMetadata | undefined>(() => tupleToFileMetadata(rawMetadata), [rawMetadata])
   const filePrivacy = useMemo<FilePrivacy | undefined>(() => tupleToFilePrivacy(rawPrivacy), [rawPrivacy])
+  const accessInfo = useMemo<AccessInfo | undefined>(() => {
+    if (!rawAccessInfo) return undefined
+    if (Array.isArray(rawAccessInfo)) {
+      return { isAuthorized: Boolean(rawAccessInfo[0]), hasDownloaded: Boolean(rawAccessInfo[1]) }
+    }
+    return rawAccessInfo as AccessInfo
+  }, [rawAccessInfo])
+  const subscriptionPlans = useMemo(() => (
+    (rawPlans || [])
+      .map((result) => tupleToSubscriptionPlanInfo(result.result))
+      .filter((plan): plan is SubscriptionPlanInfo => !!plan && plan.isActive)
+  ), [rawPlans])
+  const primarySubscriptionPlan = subscriptionPlans[0]
 
   const fileName = shareSecret.name || metadata?.fileName || `file_${fileId}`
   const mimeType = shareSecret.type || metadata?.mimeType || "application/octet-stream"
@@ -165,19 +202,35 @@ function ShareContent({ fileId }: { fileId: number }) {
   const expired = metadata ? isExpired(metadata.expiresAt) : false
   const canRequestAccess = !!fileInfo && !alreadyAuthorized && !expired
   const canDownload = alreadyAuthorized && !alreadyDownloaded && !expired
+  const canRenewSubscription = !!primarySubscriptionPlan && alreadyAuthorized && alreadyDownloaded && !isOwner && !expired
   const hasSecret = !fileInfo?.contentEncrypted || (!!shareSecret.key && !!shareSecret.iv)
   const isAnonymousShare = filePrivacy?.anonymousUpload || shareSecret.anonymous || anonymousHint
+  const accessCodeRequired = !!fileInfo?.hasPassword
+  const accessCodeMissing = accessCodeRequired && accessCode.trim().length === 0
+  const accessSubmitDisabled = isRequestingAccess || isWaitingAccess || accessCodeMissing
+  const subscriptionSubmitDisabled = !isConnected || isSubscribing || isWaitingSubscribe || accessCodeMissing
 
   useEffect(() => {
-    if (accessSuccess) {
+    if (accessSuccess || subscribeSuccess) {
       setError(null)
+      if (subscribeSuccess) {
+        setDownloaded(false)
+      }
       void refetchAccess()
     }
-  }, [accessSuccess, refetchAccess])
+  }, [accessSuccess, refetchAccess, subscribeSuccess])
 
   useEffect(() => {
-    if (!downloadSuccess || !fileInfo?.ipfsHash || downloaded) return
+    const writeError = accessWriteError || subscribeWriteError || downloadWriteError
+    if (!writeError) return
+    setError(writeError.message || "Transaction was not submitted.")
+    setDownloading(false)
+  }, [accessWriteError, downloadWriteError, subscribeWriteError])
+
+  useEffect(() => {
+    if (!downloadSuccess || !downloadTxHash || !fileInfo?.ipfsHash || processedDownloadTxHash === downloadTxHash) return
     const currentFile = fileInfo
+    const currentDownloadTxHash = downloadTxHash
 
     async function fetchAndDownload() {
       try {
@@ -194,6 +247,7 @@ function ShareContent({ fileId }: { fileId: number }) {
         }
 
         setDownloaded(true)
+        setProcessedDownloadTxHash(currentDownloadTxHash)
         setError(null)
         void refetchAccess()
       } catch (err) {
@@ -204,12 +258,16 @@ function ShareContent({ fileId }: { fileId: number }) {
     }
 
     void fetchAndDownload()
-  }, [downloadSuccess, downloaded, fileInfo, fileName, mimeType, refetchAccess, shareSecret.iv, shareSecret.key])
+  }, [downloadSuccess, downloadTxHash, fileInfo, fileName, mimeType, processedDownloadTxHash, refetchAccess, shareSecret.iv, shareSecret.key])
 
   const handleRequestAccess = () => {
     if (!fileInfo || !isConnected) return
 
     setError(null)
+    if (fileInfo.hasPassword && accessCode.trim().length === 0) {
+      setError("Enter the access code before submitting this transaction.")
+      return
+    }
     const accessCodeHash = accessCode ? hashPassword(accessCode) : ZERO_BYTES32
 
     requestAccess({
@@ -218,6 +276,23 @@ function ShareContent({ fileId }: { fileId: number }) {
       functionName: "requestAccess",
       args: [BigInt(fileId), accessCodeHash],
       value: fileInfo.price,
+      chainId: sepolia.id,
+    })
+  }
+
+  const handleSubscribe = () => {
+    if (!primarySubscriptionPlan || !isConnected) return
+    setError(null)
+    if (fileInfo?.hasPassword && accessCode.trim().length === 0) {
+      setError("Enter the access code before subscribing.")
+      return
+    }
+    subscribe({
+      address: CONTRACT_ADDRESS as `0x${string}`,
+      abi: FHENIX_DROPBOX_ABI,
+      functionName: "subscribeToPlan",
+      args: [primarySubscriptionPlan.id, 1n, accessCode ? hashPassword(accessCode) : ZERO_BYTES32],
+      value: primarySubscriptionPlan.pricePerPeriod,
       chainId: sepolia.id,
     })
   }
@@ -371,6 +446,28 @@ function ShareContent({ fileId }: { fileId: number }) {
                     </div>
                   )}
 
+                  {primarySubscriptionPlan && (
+                    <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <span className="flex items-center gap-2 text-sm font-medium text-blue-800">
+                          <CreditCard className="h-4 w-4" />
+                          Subscription
+                        </span>
+                        <span className="text-sm font-medium text-blue-800">
+                          {formatNativePrice(primarySubscriptionPlan.pricePerPeriod)} ETH
+                        </span>
+                      </div>
+                      <button
+                        onClick={handleSubscribe}
+                        disabled={subscriptionSubmitDisabled}
+                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 py-3 text-sm font-medium text-white disabled:opacity-50"
+                      >
+                        {isSubscribing || isWaitingSubscribe ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+                        Subscribe for access
+                      </button>
+                    </div>
+                  )}
+
                   {!isConnected ? (
                     <button
                       onClick={() => connect({ connector: connectors[0] })}
@@ -383,7 +480,7 @@ function ShareContent({ fileId }: { fileId: number }) {
                   ) : (
                     <button
                       onClick={handleRequestAccess}
-                      disabled={isRequestingAccess || isWaitingAccess}
+                      disabled={accessSubmitDisabled}
                       className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#111] py-4 text-sm font-medium text-white disabled:opacity-50"
                     >
                       {isRequestingAccess || isWaitingAccess ? (
@@ -440,6 +537,54 @@ function ShareContent({ fileId }: { fileId: number }) {
                     <div className="rounded-xl bg-black/[0.02] p-4 text-center text-sm text-black/50">
                       <CheckCircle className="mx-auto mb-2 h-6 w-6 text-black/30" />
                       {downloaded ? "Download complete" : "This wallet already downloaded the file"}
+                    </div>
+                  )}
+
+                  {canRenewSubscription && (
+                    <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <span className="flex items-center gap-2 text-sm font-medium text-blue-800">
+                          <CreditCard className="h-4 w-4" />
+                          Renew subscription
+                        </span>
+                        <span className="text-sm font-medium text-blue-800">
+                          {formatNativePrice(primarySubscriptionPlan.pricePerPeriod)} ETH
+                        </span>
+                      </div>
+
+                      {fileInfo?.hasPassword && (
+                        <div className="mb-3">
+                          <label className="mb-2 flex items-center gap-2 text-sm font-medium text-blue-900">
+                            <Key className="h-4 w-4 text-blue-800/60" />
+                            Access Code
+                          </label>
+                          <div className="relative">
+                            <input
+                              type={showAccessCode ? "text" : "password"}
+                              value={accessCode}
+                              onChange={(event) => setAccessCode(event.target.value)}
+                              placeholder="Enter PIN"
+                              className="w-full rounded-xl border border-blue-200 bg-white px-4 py-3 pr-11 text-sm"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowAccessCode((value) => !value)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-blue-800/50 hover:text-blue-900"
+                            >
+                              {showAccessCode ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      <button
+                        onClick={handleSubscribe}
+                        disabled={subscriptionSubmitDisabled}
+                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 py-3 text-sm font-medium text-white disabled:opacity-50"
+                      >
+                        {isSubscribing || isWaitingSubscribe ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+                        Renew download access
+                      </button>
                     </div>
                   )}
                 </div>

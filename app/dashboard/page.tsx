@@ -197,11 +197,11 @@ export default function DashboardPage() {
             { icon: Lock, title: "Access Rules", desc: "Native ETH price, PIN, limits, and expiry recorded on-chain", available: true },
             { icon: Download, title: "Multi-File Upload", desc: "Register up to 10 files in one batch transaction", available: true },
             { icon: Shield, title: "Encrypted Content", desc: "AES-256 file encryption with secret share links", available: true },
-            { icon: Eye, title: "File Preview", desc: "Public previews for PDFs and images before access", available: true },
+            { icon: Eye, title: "File Preview", desc: "Public image previews before access", available: true },
             { icon: Clock, title: "Link Expiry", desc: "24h, 7d, 30d, or never-expire links", available: true },
             { icon: TrendingUp, title: "Private Analytics", desc: "Local analytics from contract reads without external tracking", available: true },
             { icon: EyeOff, title: "Anonymous Share Mode", desc: "Owner lookup can be hidden behind a zero-address public view", available: true },
-            { icon: Zap, title: "Wave 4 Tools", desc: "Folders, webhook registry, CDN gateway delivery, and batch downloads", available: true },
+            { icon: Zap, title: "Wave 5 Tools", desc: "Relayer uploads, webhooks, teams, subscriptions, and batch downloads", available: true },
           ].map((feature, i) => (
             <div key={i} className="flex items-center gap-4 p-4">
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${feature.available ? 'bg-emerald-50' : 'bg-black/[0.05]'}`}>

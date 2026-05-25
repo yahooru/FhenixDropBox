@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { useAccount, useReadContract, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
+import { useAccount, useReadContract, useSignMessage, useSwitchChain, useWaitForTransactionReceipt, useWalletClient, useWriteContract } from "wagmi"
 import { sepolia } from "wagmi/chains"
+import { getAddress, keccak256, parseEventLogs, toBytes, type Hex } from "viem"
 import { QRCodeSVG } from "qrcode.react"
 import {
   AlertCircle,
@@ -29,14 +30,25 @@ import {
   ZERO_BYTES32,
   hashPassword,
   parseNativePrice,
+  type ConfidentialRuleInput,
   type UploadInput,
 } from "@/lib/fhenix"
+import { encryptAccessRulesForUpload } from "@/lib/cofhe"
 import { formatFileSize, generateEncryptionKey, generateIV, uploadToIPFSViaAPI } from "@/lib/ipfs"
 import { getPreferences } from "@/lib/preferences"
+import { MAX_RELAYER_INTENT_TTL_SECONDS, buildRelayerIntentHash, serializeRelayerInputs } from "@/lib/relayer"
 import { buildShareUrl, saveLocalFileSecrets, type LocalFileSecret } from "@/lib/share-links"
 
 const MAX_FILES = 10
-const MAX_FILE_SIZE = 50 * 1024 * 1024
+const RESUMABLE_UPLOADS_ENABLED = process.env.NEXT_PUBLIC_ENABLE_RESUMABLE_UPLOADS === "true"
+const SINGLE_UPLOAD_MAX_FILE_SIZE = 8 * 1024 * 1024
+const RESUMABLE_MAX_FILE_SIZE = 250 * 1024 * 1024
+const AES_GCM_TAG_BYTES = 16
+
+function getClientMaxFileSize(encryptContent: boolean) {
+  if (!RESUMABLE_UPLOADS_ENABLED) return SINGLE_UPLOAD_MAX_FILE_SIZE
+  return encryptContent ? RESUMABLE_MAX_FILE_SIZE - AES_GCM_TAG_BYTES : RESUMABLE_MAX_FILE_SIZE
+}
 
 interface FileItem {
   id: string
@@ -62,10 +74,11 @@ interface AccessRules {
   expiryDays: string
   encryptContent: boolean
   enablePreview: boolean
+  confidentialRules: boolean
 }
 
 function canPreview(file: File) {
-  return file.type.startsWith("image/") || file.type === "application/pdf"
+  return file.type.startsWith("image/")
 }
 
 async function encryptFileForUpload(file: File, keyBase64: string, ivBase64: string) {
@@ -108,13 +121,19 @@ async function createImagePreview(file: File) {
 
 async function createPreviewFile(file: File) {
   if (file.type.startsWith("image/")) return createImagePreview(file)
-  if (file.type === "application/pdf") return new File([file], `preview_${file.name}`, { type: file.type })
   return null
+}
+
+function randomHex32(): Hex {
+  const bytes = crypto.getRandomValues(new Uint8Array(32))
+  return `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`
 }
 
 export default function UploadPage() {
   const { address, isConnected, chain } = useAccount()
   const { switchChain, isPending: isSwitchingChain } = useSwitchChain()
+  const { signMessageAsync } = useSignMessage()
+  const { data: walletClient } = useWalletClient({ chainId: sepolia.id })
   const { writeContract, data: txHash, isPending, error: writeError } = useWriteContract()
   const { data: receipt, isLoading: isWaiting, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
 
@@ -127,7 +146,10 @@ export default function UploadPage() {
     expiryDays: "7",
     encryptContent: true,
     enablePreview: true,
+    confidentialRules: false,
   })
+  const maxFileSize = getClientMaxFileSize(accessRules.encryptContent)
+  const maxFileSizeLabel = formatFileSize(maxFileSize)
   const [anonymousMode, setAnonymousMode] = useState(false)
   const [showAccessCode, setShowAccessCode] = useState(false)
   const [deploying, setDeploying] = useState(false)
@@ -135,11 +157,17 @@ export default function UploadPage() {
   const [fileIds, setFileIds] = useState<bigint[]>([])
   const [baseUrl, setBaseUrl] = useState("")
   const [notice, setNotice] = useState<string | null>(null)
+  const [cofheStep, setCofheStep] = useState<string | null>(null)
   const [qrModalFile, setQrModalFile] = useState<{ fileId: bigint; file: FileItem } | null>(null)
 
   useEffect(() => {
     setBaseUrl(window.location.origin)
   }, [])
+
+  useEffect(() => {
+    if (!address || !walletClient) return
+    setAccessRules((current) => current.confidentialRules ? current : { ...current, confidentialRules: true })
+  }, [address, walletClient])
 
   useEffect(() => {
     if (!address) return
@@ -152,6 +180,13 @@ export default function UploadPage() {
       expiryDays: preferences.defaultExpiry,
     }))
   }, [address])
+
+  useEffect(() => {
+    if (!writeError) return
+    setNotice(writeError.message || "Transaction was not submitted")
+    setDeploying(false)
+    setCofheStep(null)
+  }, [writeError])
 
   const { data: totalFilesBefore } = useReadContract({
     address: CONTRACT_ADDRESS as `0x${string}`,
@@ -170,6 +205,12 @@ export default function UploadPage() {
 
   const uploadFileItem = useCallback(async (item: FileItem, rules: AccessRules) => {
     try {
+      if (!address) throw new Error("Connect your wallet before uploading")
+
+      const uploadAuth = {
+        owner: address as `0x${string}`,
+        signMessage: (message: string) => signMessageAsync({ message }),
+      }
       let fileToUpload = item.file
       let encryptionKey: string | null = null
       let encryptionIv: string | null = null
@@ -178,7 +219,7 @@ export default function UploadPage() {
       if (rules.enablePreview && canPreview(item.file)) {
         const previewFile = await createPreviewFile(item.file)
         if (previewFile) {
-          const preview = await uploadToIPFSViaAPI(previewFile)
+          const preview = await uploadToIPFSViaAPI(previewFile, undefined, uploadAuth)
           previewHash = preview.hash
         }
       }
@@ -189,7 +230,7 @@ export default function UploadPage() {
         fileToUpload = await encryptFileForUpload(item.file, encryptionKey, encryptionIv)
       }
 
-      const result = await uploadToIPFSViaAPI(fileToUpload)
+      const result = await uploadToIPFSViaAPI(fileToUpload, undefined, uploadAuth)
       updateFile(item.id, {
         ipfsHash: result.hash,
         previewHash,
@@ -207,7 +248,7 @@ export default function UploadPage() {
         error: error instanceof Error ? error.message : "Upload failed",
       })
     }
-  }, [updateFile])
+  }, [address, signMessageAsync, updateFile])
 
   const addFiles = useCallback((fileList: File[]) => {
     setNotice(null)
@@ -224,8 +265,8 @@ export default function UploadPage() {
     }
 
     const accepted = selected.filter((file) => {
-      if (file.size <= MAX_FILE_SIZE) return true
-      setNotice(`${file.name} is larger than 50MB and was skipped.`)
+      if (file.size <= maxFileSize) return true
+      setNotice(`${file.name} is larger than ${maxFileSizeLabel} and was skipped.`)
       return false
     })
 
@@ -248,7 +289,7 @@ export default function UploadPage() {
 
     setFiles((prev) => [...prev, ...newFiles])
     newFiles.forEach((file) => void uploadFileItem(file, accessRules))
-  }, [accessRules, files.length, uploadFileItem])
+  }, [accessRules, files.length, maxFileSize, maxFileSizeLabel, uploadFileItem])
 
   const handleDrag = useCallback((event: React.DragEvent) => {
     event.preventDefault()
@@ -267,12 +308,7 @@ export default function UploadPage() {
     setFiles((prev) => prev.filter((file) => file.id !== id))
   }
 
-  useEffect(() => {
-    if (!isSuccess || totalFilesBefore === undefined || deployed) return
-
-    const startId = Number(totalFilesBefore)
-    const newFileIds = readyFiles.map((_, index) => BigInt(startId + index))
-
+  const finalizeDeployedBatch = useCallback((newFileIds: bigint[]) => {
     if (address) {
       const secrets: LocalFileSecret[] = readyFiles.map((file, index) => ({
         fileId: newFileIds[index].toString(),
@@ -293,7 +329,89 @@ export default function UploadPage() {
     setFileIds(newFileIds)
     setDeploying(false)
     setDeployed(true)
-  }, [address, anonymousMode, deployed, isSuccess, readyFiles, totalFilesBefore])
+  }, [address, anonymousMode, readyFiles])
+
+  useEffect(() => {
+    if (!isSuccess || deployed || !receipt) return
+
+    const uploadLogs = parseEventLogs({
+      abi: FHENIX_DROPBOX_ABI,
+      logs: receipt.logs,
+      eventName: "FileUploaded",
+    })
+    const loggedFileIds = uploadLogs
+      .map((log) => {
+        const args = log.args as Record<string, unknown>
+        return args.fileId == null ? undefined : BigInt(args.fileId.toString())
+      })
+      .filter((fileId): fileId is bigint => fileId !== undefined)
+
+    if (loggedFileIds.length === readyFiles.length) {
+      finalizeDeployedBatch(loggedFileIds)
+      return
+    }
+
+    if (totalFilesBefore === undefined) return
+    const startId = Number(totalFilesBefore)
+    finalizeDeployedBatch(readyFiles.map((_, index) => BigInt(startId + index)))
+  }, [deployed, finalizeDeployedBatch, isSuccess, readyFiles, receipt, totalFilesBefore])
+
+  const submitRelayedUpload = useCallback(async (inputs: UploadInput[]) => {
+    if (!address) throw new Error("Connect your wallet before submitting an anonymous upload")
+
+    const owner = getAddress(address as Hex)
+    const nonce = BigInt(randomHex32())
+    const expiresAt = BigInt(Math.floor(Date.now() / 1000) + MAX_RELAYER_INTENT_TTL_SECONDS)
+    const ownerCommitment = keccak256(toBytes(JSON.stringify({
+      owner,
+      nonce: nonce.toString(),
+      salt: randomHex32(),
+    })))
+    const serializedInputs = serializeRelayerInputs(inputs.map((input) => ({
+      ...input,
+      anonymousUpload: true,
+    })))
+    const intentHash = buildRelayerIntentHash({
+      inputs: serializedInputs,
+      owner,
+      ownerCommitment,
+      nonce,
+      expiresAt,
+      contractAddress: CONTRACT_ADDRESS as Hex,
+    })
+    const signature = await signMessageAsync({ message: { raw: intentHash } })
+    const response = await fetch("/api/relayer/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        owner,
+        ownerCommitment,
+        nonce: nonce.toString(),
+        expiresAt: expiresAt.toString(),
+        inputs: serializedInputs,
+        signature,
+      }),
+    })
+    const result = await response.json().catch(() => ({})) as {
+      error?: string
+      transactionHash?: string
+      fileIds?: string[]
+    }
+
+    if (!response.ok) {
+      throw new Error(result.error || "Relayed upload failed")
+    }
+
+    const relayedFileIds = Array.isArray(result.fileIds) ? result.fileIds.map((fileId) => BigInt(fileId)) : []
+    if (relayedFileIds.length !== readyFiles.length) {
+      throw new Error("Relayer transaction completed but did not return the expected file ids")
+    }
+
+    finalizeDeployedBatch(relayedFileIds)
+    if (result.transactionHash) {
+      setNotice(`Anonymous upload relayed on-chain: ${result.transactionHash.slice(0, 10)}...${result.transactionHash.slice(-8)}`)
+    }
+  }, [address, finalizeDeployedBatch, readyFiles.length, signMessageAsync])
 
   const handleDeploy = async () => {
     if (!address || readyFiles.length === 0) return
@@ -326,6 +444,42 @@ export default function UploadPage() {
         anonymousUpload: anonymousMode,
       }))
 
+      if (anonymousMode) {
+        if (accessRules.confidentialRules) {
+          setCofheStep(null)
+          setNotice("Anonymous uploads are submitted through the trusted relayer and registered on-chain with public access-rule fields.")
+        }
+        await submitRelayedUpload(inputs)
+        return
+      }
+
+      if (accessRules.confidentialRules) {
+        if (!walletClient) {
+          throw new Error("CoFHE rule encryption requires the connected wallet client")
+        }
+        setCofheStep("Preparing CoFHE inputs")
+        const encryptedRules = await encryptAccessRulesForUpload({
+          account: address as `0x${string}`,
+          walletClient,
+          priceWei: price,
+          maxDownloads: BigInt(accessRules.maxDownloads || "0"),
+          expiryDays: BigInt(accessRules.expiryDays || "0"),
+          accessCodeHash,
+          onStep: setCofheStep,
+        })
+        const rulesBatch: ConfidentialRuleInput[] = readyFiles.map(() => encryptedRules)
+
+        writeContract({
+          address: CONTRACT_ADDRESS as `0x${string}`,
+          abi: FHENIX_DROPBOX_ABI,
+          functionName: "uploadFilesBatchWithConfidentialRules",
+          args: [inputs, rulesBatch],
+          chainId: sepolia.id,
+        })
+        setCofheStep(null)
+        return
+      }
+
       writeContract({
         address: CONTRACT_ADDRESS as `0x${string}`,
         abi: FHENIX_DROPBOX_ABI,
@@ -337,6 +491,7 @@ export default function UploadPage() {
       console.error("Deploy error:", error)
       setNotice(error instanceof Error ? error.message : "Failed to submit transaction")
       setDeploying(false)
+      setCofheStep(null)
     }
   }
 
@@ -370,7 +525,7 @@ export default function UploadPage() {
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div>
-            <h1 className="text-2xl font-medium">Upload Wave 4 Batch</h1>
+            <h1 className="text-2xl font-medium">Upload Wave 5 Batch</h1>
             <p className="text-sm text-black/50">
               Encrypt locally, pin to IPFS, and register up to 10 files on-chain in one transaction.
             </p>
@@ -418,7 +573,7 @@ export default function UploadPage() {
               </div>
               <div className="font-medium">Drop files here</div>
               <div className="mt-1 text-sm text-black/50">
-                {files.length}/{MAX_FILES} selected, 50MB max per file
+                {files.length}/{MAX_FILES} selected, {maxFileSizeLabel} max per file{RESUMABLE_UPLOADS_ENABLED ? " with resumable upload" : ""}
               </div>
             </div>
           </div>
@@ -562,7 +717,7 @@ export default function UploadPage() {
 
               <label className="flex items-center justify-between rounded-xl border border-black/[0.07] bg-black/[0.02] p-4">
                 <span>
-                  <span className="block text-sm font-medium">Public image/PDF preview</span>
+                  <span className="block text-sm font-medium">Public image preview</span>
                   <span className="text-xs text-black/45">Preview files are visible before access.</span>
                 </span>
                 <input
@@ -576,8 +731,26 @@ export default function UploadPage() {
 
               <label className="flex items-center justify-between rounded-xl border border-black/[0.07] bg-black/[0.02] p-4">
                 <span>
+                  <span className="block text-sm font-medium">CoFHE encrypted rule mirror</span>
+                  <span className="text-xs text-black/45">
+                    {anonymousMode
+                      ? "Available for direct wallet uploads."
+                      : "Price, limits, expiry, and PIN commitment are stored as Fhenix encrypted handles."}
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={!anonymousMode && accessRules.confidentialRules}
+                  disabled={deployed || !walletClient || anonymousMode}
+                  onChange={(event) => setAccessRules({ ...accessRules, confidentialRules: event.target.checked })}
+                  className="h-5 w-5"
+                />
+              </label>
+
+              <label className="flex items-center justify-between rounded-xl border border-black/[0.07] bg-black/[0.02] p-4">
+                <span>
                   <span className="block text-sm font-medium">Anonymous share mode</span>
-                  <span className="text-xs text-black/45">Public owner lookups return a zero address for this upload.</span>
+                  <span className="text-xs text-black/45">A trusted relayer submits the on-chain upload and public owner lookups return zero.</span>
                 </span>
                 <input
                   type="checkbox"
@@ -593,13 +766,23 @@ export default function UploadPage() {
           <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-800">
             <div className="mb-1 flex items-center gap-2 font-medium">
               <Shield className="h-4 w-4" />
-              Wave 3/4 Ready
+              Wave 5 Ready
             </div>
             <p className="text-xs text-emerald-700/80">
-              Batch upload, expiry, preview metadata, folders, webhooks, and batch download accounting are now supported on-chain.
+              Batch upload, CoFHE rule handles, expiry, previews, folders, webhooks, subscriptions, and batch download accounting are supported on-chain.
               {anonymousMode ? " Anonymous share mode is enabled for this batch." : ""}
             </p>
           </div>
+
+          {cofheStep && (
+            <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
+              <div className="mb-1 flex items-center gap-2 font-medium">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Encrypting access rules
+              </div>
+              <p className="text-xs text-blue-700/80">{cofheStep}</p>
+            </div>
+          )}
 
           {writeError && (
             <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">

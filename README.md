@@ -2,25 +2,27 @@
 
 Privacy-first decentralized file sharing for the Fhenix ecosystem.
 
-FhenixDropBox lets a user encrypt files in the browser, pin the encrypted payload to IPFS, register access rules on Sepolia, and share a secret link that keeps the file key off-chain. The app is built as a working Wave 1-4 product, with the remaining confidential-computing and automation work documented under Wave 5.
+FhenixDropBox lets a user encrypt files in the browser, pin the encrypted payload to IPFS, register access rules on Sepolia, and share a secret link that keeps the file key off-chain. The app is now wired as a Wave 5 product with CoFHE encrypted rule mirrors, team folders, subscriptions, relayed anonymous upload support, resumable IPFS uploads, webhook delivery, analytics indexing, and deployment monitoring.
 
 Live app: https://fhenixdropbox.vercel.app
 
 ## What It Does
 
 - Encrypts file contents locally with AES-GCM before upload.
-- Stores encrypted files and optional image/PDF previews on IPFS through Pinata.
+- Stores encrypted files and optional public image previews on IPFS through Pinata.
 - Registers file metadata and access rules on the deployed Sepolia contract.
 - Supports native Sepolia ETH access payments with refund handling.
 - Supports access PIN hashes, expiry, max download limits, and download accounting.
 - Generates secret share links with the AES key and IV in the URL fragment.
 - Provides QR sharing, folder organization, batch upload, batch download, webhooks, private analytics, and anonymous share mode.
+- Stores access-rule mirrors as CoFHE encrypted handles using `@cofhe/sdk` and `@fhenixprotocol/cofhe-contracts`.
+- Supports team folder permissions, recurring subscription access, trusted relayed uploads, webhook delivery, and resumable large-file upload.
 
-## Deployed Contract
+## Deployment
 
 - Network: Ethereum Sepolia
-- Address: `0x4B41c506a718774b15aDd13703B61B4C7282f221`
-- Explorer: https://sepolia.etherscan.io/address/0x4B41c506a718774b15aDd13703B61B4C7282f221
+- The configured `NEXT_PUBLIC_CONTRACT_ADDRESS` must pass `npm run production:check`, which verifies the deployed bytecode matches the local `FhenixDropBox` artifact.
+- After deploying Wave 5, update `.env.local` and your hosting environment with the new contract address.
 
 ## How It Works
 
@@ -69,21 +71,19 @@ Live app: https://fhenixdropbox.vercel.app
 - Event masks for upload, access, and download consumers.
 - IPFS gateway delivery.
 - Settings defaults for new uploads.
-- Production build wired to the latest deployed contract.
+- Production checks that verify the configured contract matches the local artifact.
 
-### Wave 5 - Final Items Still To Build
+### Wave 5 - Production Completion
 
-These are not fully production-complete yet and are intentionally tracked for Wave 5:
-
-- Real CoFHE encrypted access-rule storage using current Fhenix `@cofhe/sdk` and `@fhenixprotocol/cofhe-contracts` patterns.
-- Relayer or account-abstraction flow for stronger anonymous uploads. Current anonymous mode hides owner lookup in the app contract API, but the originating wallet transaction remains visible on public Sepolia explorers.
-- Webhook delivery worker. The contract stores hashed webhook endpoints and event masks today; a backend/indexer still needs to deliver events to user endpoints.
+- Real CoFHE encrypted access-rule mirrors using current Fhenix `@cofhe/sdk`, `@cofhe/hardhat-plugin`, and `@fhenixprotocol/cofhe-contracts` patterns.
+- Trusted relayer endpoint and contract entrypoint for stronger anonymous uploads.
+- Self-service webhook target registration plus a delivery endpoint and worker script that validates hashed webhook endpoints before delivery.
 - Team folders and shared folder permissions.
 - Recurring subscriptions and recurring access payments.
-- Production analytics indexer for historical charts beyond direct contract reads.
-- Contract verification and monitoring pipeline for main deployment environments.
-- Larger-file resumable uploads and dedicated gateway/CDN configuration.
-- Pinata credential rotation before public production launch, because the current test credentials were shared during development.
+- Production analytics API that indexes recent upload, access, download, and subscription events.
+- Contract verification and monitoring commands for Sepolia deployment environments.
+- Larger-file resumable uploads with chunk assembly before IPFS pinning.
+- Production environment check that blocks sample keys and missing Pinata/contract settings before launch.
 
 ## Environment
 
@@ -91,7 +91,7 @@ Create `.env.local` from `.env.example` and fill the values:
 
 ```env
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_walletconnect_project_id
-NEXT_PUBLIC_CONTRACT_ADDRESS=0x4B41c506a718774b15aDd13703B61B4C7282f221
+NEXT_PUBLIC_CONTRACT_ADDRESS=0x_deployed_wave5_contract_address
 
 SEPOLIA_RPC_URL=https://ethereum-sepolia.publicnode.com
 ARBITRUM_SEPOLIA_RPC_URL=https://sepolia-rollup.arbitrum.io/rpc
@@ -101,10 +101,23 @@ PINATA_JWT=your_server_side_pinata_jwt
 PINATA_API_KEY=optional_pinata_api_key
 PINATA_API_SECRET=optional_pinata_api_secret
 PRIVATE_KEY=your_testnet_deploy_key
+RELAYER_PRIVATE_KEY=dedicated_trusted_relayer_key_for_public_upload_api
+RELAYER_ALLOWED_OWNERS=comma_separated_wallets_allowed_to_use_public_relayer
 ETHERSCAN_API_KEY=
+APP_BASE_URL=http://localhost:3000
+WEBHOOK_DELIVERY_TARGETS=[]
+WEBHOOK_DELIVERY_SECRET=replace_with_a_long_worker_secret
+WEBHOOK_BLOCK_WINDOW=5000
+WEBHOOK_CHECKPOINT_FILE=.webhook-checkpoints.json
+WEBHOOK_TARGETS_FILE=.webhook-targets.json
+ANALYTICS_BLOCK_WINDOW=25000
+NEXT_PUBLIC_ENABLE_RESUMABLE_UPLOADS=false
+RESUMABLE_UPLOAD_DIR=/absolute/path/to/durable/upload-storage
 ```
 
 Pinata credentials must stay server-side. Do not expose them as `NEXT_PUBLIC_*` values. The upload route uses `PINATA_API_KEY` + `PINATA_API_SECRET` first and falls back to `PINATA_JWT`.
+
+Resumable uploads are opt-in for production: set `NEXT_PUBLIC_ENABLE_RESUMABLE_UPLOADS=true` only when `RESUMABLE_UPLOAD_DIR` points at durable storage shared by the running server process. Webhook endpoint URLs are saved off-chain in `WEBHOOK_TARGETS_FILE`; the worker delivers only observed on-chain events and stores its high-water mark in `WEBHOOK_CHECKPOINT_FILE`.
 
 ## Commands
 
@@ -112,8 +125,11 @@ Pinata credentials must stay server-side. Do not expose them as `NEXT_PUBLIC_*` 
 npm install
 npm run compile
 npm run test
-npx tsc --noEmit
+npm run lint
 npm run build
+npm run production:check
+npm run monitor:sepolia
+npm run webhook:worker
 npm run dev
 ```
 
@@ -121,6 +137,7 @@ Deploy to Sepolia:
 
 ```bash
 npm run deploy:sepolia
+npm run verify:sepolia -- <deployed_contract_address>
 ```
 
 ## Routes
@@ -133,10 +150,15 @@ npm run deploy:sepolia
 | `/files` | Manage files, folders, QR links, anonymous mode, and batch downloads |
 | `/share/[id]` | Recipient access, payment, decrypt, and download flow |
 | `/settings` | Defaults, privacy controls, webhooks, and appearance |
+| `/api/ipfs/resumable` | Chunked large-file upload assembly and Pinata pinning |
+| `/api/relayer/upload` | Trusted relayer upload endpoint for anonymous mode |
+| `/api/webhooks/deliver` | Webhook delivery endpoint with on-chain endpoint-hash validation |
+| `/api/analytics` | Production analytics event-indexing endpoint |
 
 ## Notes
 
-- The current production path is AES-encrypted IPFS delivery plus Sepolia-enforced access rules.
+- The current production path is AES-encrypted IPFS delivery plus Sepolia-enforced access rules and CoFHE encrypted rule mirrors.
 - File keys are not stored on-chain.
 - Access code values are not stored directly; the contract stores hashes.
-- The Wave 5 CoFHE work is the final step for confidential on-chain rule storage.
+- CoFHE encrypted handles are available for authorized decrypt views while public rule fields continue enforcing payments, expiry, and download limits on Sepolia.
+- Pinata credentials must be rotated before any public launch if the previous development credentials were exposed.

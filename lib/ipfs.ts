@@ -8,9 +8,20 @@
  * For client-side, use the /api/ipfs route instead.
  */
 
+import { CONTRACT_ADDRESS } from '@/lib/fhenix'
+import {
+  UPLOAD_AUTH_CHAIN_ID,
+  buildUploadAuthorizationMessage,
+  type UploadAuthorization,
+} from '@/lib/upload-auth'
+import { getAddress } from 'viem'
+
 const PINATA_API_URL = 'https://api.pinata.cloud'
 const PINATA_GATEWAY = 'https://gateway.pinata.cloud/ipfs'
 const PUBLIC_GATEWAY = 'https://ipfs.io/ipfs'
+const RESUMABLE_THRESHOLD = 8 * 1024 * 1024
+const RESUMABLE_CHUNK_SIZE = 4 * 1024 * 1024
+const RESUMABLE_UPLOADS_ENABLED = process.env.NEXT_PUBLIC_ENABLE_RESUMABLE_UPLOADS === 'true'
 
 interface PinataResponse {
   IpfsHash: string
@@ -22,6 +33,48 @@ interface UploadResult {
   hash: string
   size: number
   timestamp: string
+}
+
+export interface UploadAuthSigner {
+  owner: `0x${string}`
+  signMessage: (message: string) => Promise<`0x${string}`>
+}
+
+async function hashFile(file: File): Promise<`0x${string}`> {
+  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+  const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
+  return `0x${hex}`
+}
+
+async function buildUploadAuthorization(file: File, auth: UploadAuthSigner): Promise<UploadAuthorization> {
+  const timestamp = Date.now().toString()
+  const contentHash = await hashFile(file)
+  const owner = getAddress(auth.owner)
+  const signature = await auth.signMessage(buildUploadAuthorizationMessage({
+    owner,
+    contractAddress: CONTRACT_ADDRESS,
+    chainId: UPLOAD_AUTH_CHAIN_ID,
+    fileName: file.name,
+    fileSize: file.size,
+    contentHash,
+    timestamp,
+  }))
+
+  return {
+    owner,
+    signature,
+    contentHash,
+    timestamp,
+    chainId: UPLOAD_AUTH_CHAIN_ID.toString(),
+  }
+}
+
+function appendUploadAuthorization(formData: FormData, auth: UploadAuthorization) {
+  formData.append('owner', auth.owner)
+  formData.append('signature', auth.signature)
+  formData.append('contentHash', auth.contentHash)
+  formData.append('timestamp', auth.timestamp)
+  formData.append('chainId', auth.chainId)
 }
 
 // ─── Server-side Upload ────────────────────────────────────────────────────────
@@ -85,9 +138,19 @@ export async function uploadToIPFSServer(fileBuffer: ArrayBuffer, filename: stri
  * Upload a file to IPFS via API route (client-side safe)
  * The API route uses server-side Pinata JWT
  */
-export async function uploadToIPFSViaAPI(file: File): Promise<UploadResult> {
+export async function uploadToIPFSViaAPI(file: File, onProgress?: (progress: number) => void, auth?: UploadAuthSigner): Promise<UploadResult> {
+  if (!auth) {
+    throw new Error('Wallet signature is required before uploading to IPFS')
+  }
+
+  if (RESUMABLE_UPLOADS_ENABLED && file.size > RESUMABLE_THRESHOLD) {
+    return uploadResumableToIPFSViaAPI(file, onProgress, auth)
+  }
+
+  const uploadAuth = await buildUploadAuthorization(file, auth)
   const formData = new FormData()
   formData.append('file', file)
+  appendUploadAuthorization(formData, uploadAuth)
 
   try {
     const response = await fetch('/api/ipfs/upload', {
@@ -99,9 +162,81 @@ export async function uploadToIPFSViaAPI(file: File): Promise<UploadResult> {
       throw new Error(`Upload failed: ${response.statusText}`)
     }
 
-    return await response.json()
+    const result = await response.json()
+    onProgress?.(100)
+    return result
   } catch (error) {
     console.error('IPFS upload error:', error)
+    throw error
+  }
+}
+
+export async function uploadResumableToIPFSViaAPI(file: File, onProgress?: (progress: number) => void, auth?: UploadAuthSigner): Promise<UploadResult> {
+  if (!auth) {
+    throw new Error('Wallet signature is required before uploading to IPFS')
+  }
+
+  const totalChunks = Math.ceil(file.size / RESUMABLE_CHUNK_SIZE)
+  const uploadAuth = await buildUploadAuthorization(file, auth)
+  const initResponse = await fetch('/api/ipfs/resumable', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'init',
+      fileName: file.name,
+      mimeType: file.type || 'application/octet-stream',
+      totalSize: file.size,
+      totalChunks,
+      authorization: uploadAuth,
+    }),
+  })
+
+  if (!initResponse.ok) {
+    throw new Error(`Resumable upload init failed: ${initResponse.statusText}`)
+  }
+
+  const { uploadId } = await initResponse.json()
+
+  try {
+    for (let index = 0; index < totalChunks; index++) {
+      const start = index * RESUMABLE_CHUNK_SIZE
+      const chunk = file.slice(start, Math.min(file.size, start + RESUMABLE_CHUNK_SIZE))
+      const formData = new FormData()
+      formData.append('uploadId', uploadId)
+      formData.append('index', index.toString())
+      formData.append('chunk', new File([chunk], `${file.name}.part${index}`, { type: 'application/octet-stream' }))
+
+      const chunkResponse = await fetch('/api/ipfs/resumable', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!chunkResponse.ok) {
+        throw new Error(`Resumable chunk ${index + 1} failed`)
+      }
+
+      onProgress?.(Math.round(((index + 1) / totalChunks) * 90))
+    }
+
+    const completeResponse = await fetch('/api/ipfs/resumable', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'complete', uploadId }),
+    })
+
+    if (!completeResponse.ok) {
+      throw new Error(`Resumable upload finalize failed: ${completeResponse.statusText}`)
+    }
+
+    const result = await completeResponse.json()
+    onProgress?.(100)
+    return result
+  } catch (error) {
+    await fetch('/api/ipfs/resumable', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'abort', uploadId }),
+    }).catch(() => undefined)
     throw error
   }
 }
@@ -114,7 +249,7 @@ export async function uploadToIPFSViaAPI(file: File): Promise<UploadResult> {
 export async function uploadToIPFS(file: File): Promise<UploadResult> {
   // Check if we're in a browser environment
   if (typeof window !== 'undefined') {
-    return uploadToIPFSViaAPI(file)
+    throw new Error('Use uploadToIPFSViaAPI with a wallet signature in browser contexts')
   }
   // Server-side would need buffer conversion
   throw new Error('Use uploadToIPFSServer with file buffer for server-side')
@@ -133,8 +268,13 @@ export async function uploadToIPFS(file: File): Promise<UploadResult> {
  */
 export async function encryptAndUpload(
   file: File,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  auth?: UploadAuthSigner,
 ): Promise<{ ipfsHash: string; key: string; iv: string; size: number }> {
+  if (!auth) {
+    throw new Error('Wallet signature is required before uploading to IPFS')
+  }
+
   onProgress?.(10)
 
   // Generate encryption key
@@ -172,7 +312,9 @@ export async function encryptAndUpload(
 
   // Upload encrypted file to IPFS via the client-safe API route.
   const result = await uploadToIPFSViaAPI(
-    new File([encryptedBlob], `encrypted_${file.name}`, { type: 'application/octet-stream' })
+    new File([encryptedBlob], `encrypted_${file.name}`, { type: 'application/octet-stream' }),
+    undefined,
+    auth,
   )
 
   onProgress?.(100)

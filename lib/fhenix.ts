@@ -5,18 +5,25 @@
  * aligned with every contract compile/deploy.
  */
 
-import { arbitrumSepolia, baseSepolia, sepolia } from 'wagmi/chains'
 import { formatEther, keccak256, parseEther, type Abi } from 'viem'
+import type { EncryptedItemInput } from '@cofhe/sdk'
 import FhenixDropBoxArtifact from '@/artifacts/contracts/FhenixDropBox.sol/FhenixDropBox.json'
+import { arbitrumSepolia, baseSepolia, sepolia } from '@/lib/sepolia'
 
-export const CONTRACT_ADDRESS =
-  process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || '0x4B41c506a718774b15aDd13703B61B4C7282f221'
+export const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as const
+export const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || ZERO_ADDRESS
 
 export const SUPPORTED_CHAINS = [sepolia, arbitrumSepolia, baseSepolia]
 export const FHENIX_DROPBOX_ABI = FhenixDropBoxArtifact.abi as Abi
 
 export const ZERO_BYTES32 =
   '0x0000000000000000000000000000000000000000000000000000000000000000' as const
+
+export const TEAM_ROLES = {
+  viewer: 1,
+  editor: 2,
+  admin: 3,
+} as const
 
 export interface FileInfo {
   ipfsHash: string
@@ -64,6 +71,43 @@ export interface FilePrivacy {
   visibleOwner: `0x${string}`
 }
 
+export interface ConfidentialRuleHandles {
+  enabled: boolean
+  priceHandle: `0x${string}`
+  maxDownloadsHandle: `0x${string}`
+  expiresAtHandle: `0x${string}`
+  accessCodeHashHighHandle: `0x${string}`
+  accessCodeHashLowHandle: `0x${string}`
+  updatedAt: bigint
+}
+
+export interface TeamInfo {
+  id: bigint
+  owner: `0x${string}`
+  name: string
+  createdAt: bigint
+  memberCount: bigint
+  isActive: boolean
+}
+
+export interface SubscriptionPlanInfo {
+  id: bigint
+  fileId: bigint
+  owner: `0x${string}`
+  pricePerPeriod: bigint
+  periodSeconds: bigint
+  maxPeriods: bigint
+  isActive: boolean
+  createdAt: bigint
+}
+
+export interface SubscriptionInfo {
+  planId: bigint
+  paidUntil: bigint
+  periodsPaid: bigint
+  isActive: boolean
+}
+
 export type UploadInput = {
   ipfsHash: string
   fileName: string
@@ -79,6 +123,15 @@ export type UploadInput = {
   previewEnabled: boolean
   previewHash: string
   anonymousUpload: boolean
+}
+
+export type ConfidentialRuleInput = {
+  price: EncryptedItemInput
+  maxDownloads: EncryptedItemInput
+  expiresAt: EncryptedItemInput
+  accessCodeHashHigh: EncryptedItemInput
+  accessCodeHashLow: EncryptedItemInput
+  enabled: boolean
 }
 
 export function hashPassword(password: string): `0x${string}` {
@@ -165,6 +218,55 @@ export function tupleToFilePrivacy(data: unknown): FilePrivacy | undefined {
   return {
     anonymousUpload: data[0] || false,
     visibleOwner: data[1],
+  }
+}
+
+export function tupleToConfidentialRuleHandles(data: unknown): ConfidentialRuleHandles | undefined {
+  if (!Array.isArray(data)) return undefined
+  return {
+    enabled: data[0] || false,
+    priceHandle: data[1] || ZERO_BYTES32,
+    maxDownloadsHandle: data[2] || ZERO_BYTES32,
+    expiresAtHandle: data[3] || ZERO_BYTES32,
+    accessCodeHashHighHandle: data[4] || ZERO_BYTES32,
+    accessCodeHashLowHandle: data[5] || ZERO_BYTES32,
+    updatedAt: data[6] || 0n,
+  }
+}
+
+export function tupleToTeamInfo(data: unknown): TeamInfo | undefined {
+  if (!Array.isArray(data)) return undefined
+  return {
+    id: data[0] || 0n,
+    owner: data[1],
+    name: data[2] || '',
+    createdAt: data[3] || 0n,
+    memberCount: data[4] || 0n,
+    isActive: data[5] || false,
+  }
+}
+
+export function tupleToSubscriptionPlanInfo(data: unknown): SubscriptionPlanInfo | undefined {
+  if (!Array.isArray(data)) return undefined
+  return {
+    id: data[0] || 0n,
+    fileId: data[1] || 0n,
+    owner: data[2],
+    pricePerPeriod: data[3] || 0n,
+    periodSeconds: data[4] || 0n,
+    maxPeriods: data[5] || 0n,
+    isActive: data[6] || false,
+    createdAt: data[7] || 0n,
+  }
+}
+
+export function tupleToSubscriptionInfo(data: unknown): SubscriptionInfo | undefined {
+  if (!Array.isArray(data)) return undefined
+  return {
+    planId: data[0] || 0n,
+    paidUntil: data[1] || 0n,
+    periodsPaid: data[2] || 0n,
+    isActive: data[3] || false,
   }
 }
 

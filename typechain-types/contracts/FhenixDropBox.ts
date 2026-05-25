@@ -23,6 +23,48 @@ import type {
   TypedContractMethod,
 } from "../common";
 
+export type InEuint128Struct = {
+  ctHash: BigNumberish;
+  securityZone: BigNumberish;
+  utype: BigNumberish;
+  signature: BytesLike;
+};
+
+export type InEuint128StructOutput = [
+  ctHash: bigint,
+  securityZone: bigint,
+  utype: bigint,
+  signature: string
+] & { ctHash: bigint; securityZone: bigint; utype: bigint; signature: string };
+
+export type InEuint32Struct = {
+  ctHash: BigNumberish;
+  securityZone: BigNumberish;
+  utype: BigNumberish;
+  signature: BytesLike;
+};
+
+export type InEuint32StructOutput = [
+  ctHash: bigint,
+  securityZone: bigint,
+  utype: bigint,
+  signature: string
+] & { ctHash: bigint; securityZone: bigint; utype: bigint; signature: string };
+
+export type InEuint64Struct = {
+  ctHash: BigNumberish;
+  securityZone: BigNumberish;
+  utype: BigNumberish;
+  signature: BytesLike;
+};
+
+export type InEuint64StructOutput = [
+  ctHash: bigint,
+  securityZone: bigint,
+  utype: bigint,
+  signature: string
+] & { ctHash: bigint; securityZone: bigint; utype: bigint; signature: string };
+
 export declare namespace FhenixDropBox {
   export type UploadInputStruct = {
     ipfsHash: string;
@@ -72,61 +114,111 @@ export declare namespace FhenixDropBox {
     previewHash: string;
     anonymousUpload: boolean;
   };
+
+  export type ConfidentialRuleInputStruct = {
+    price: InEuint128Struct;
+    maxDownloads: InEuint32Struct;
+    expiresAt: InEuint64Struct;
+    accessCodeHashHigh: InEuint128Struct;
+    accessCodeHashLow: InEuint128Struct;
+    enabled: boolean;
+  };
+
+  export type ConfidentialRuleInputStructOutput = [
+    price: InEuint128StructOutput,
+    maxDownloads: InEuint32StructOutput,
+    expiresAt: InEuint64StructOutput,
+    accessCodeHashHigh: InEuint128StructOutput,
+    accessCodeHashLow: InEuint128StructOutput,
+    enabled: boolean
+  ] & {
+    price: InEuint128StructOutput;
+    maxDownloads: InEuint32StructOutput;
+    expiresAt: InEuint64StructOutput;
+    accessCodeHashHigh: InEuint128StructOutput;
+    accessCodeHashLow: InEuint128StructOutput;
+    enabled: boolean;
+  };
 }
 
 export interface FhenixDropBoxInterface extends Interface {
   getFunction(
     nameOrSignature:
-      | "MAX_BATCH_SIZE"
-      | "MAX_PRICE"
-      | "authorizedUsers"
+      | "activeSubscriptionPaidUntil"
+      | "addTeamMember"
       | "batchDownloadFiles"
+      | "canViewFolder"
+      | "canWriteFolder"
+      | "cancelSubscription"
+      | "clearConfidentialRules"
       | "createFolder"
+      | "createSubscriptionPlan"
+      | "createTeam"
       | "deactivateFile"
       | "downloadFile"
-      | "downloadHistory"
-      | "files"
       | "folders"
       | "getAccessInfo"
       | "getBalance"
+      | "getConfidentialRuleHandles"
       | "getEncryptionInfo"
+      | "getFileAnalytics"
       | "getFileExpiry"
       | "getFileInfo"
       | "getFileMetadata"
       | "getFileOwner"
       | "getFilePrivacy"
+      | "getFileSubscriptionPlans"
       | "getFilesByFolder"
       | "getLatestFileId"
       | "getMyFiles"
       | "getMyFolders"
+      | "getMyTeams"
       | "getMyWebhooks"
+      | "getProductionStats"
       | "getRemainingDownloads"
       | "getStats"
+      | "getTeamMembers"
+      | "getVisibleFilesByFolder"
+      | "getVisibleFolders"
+      | "getWebhookFileOwner"
+      | "grantFolderToTeam"
+      | "hasActiveSubscription"
       | "isFileExpired"
       | "moveFileToFolder"
       | "owner"
       | "reactivateFile"
       | "registerWebhook"
+      | "relayedUploadFilesBatch"
+      | "removeTeamMember"
       | "renounceOwnership"
       | "requestAccess"
       | "revokeAccess"
+      | "revokeFolderTeam"
+      | "setConfidentialRules"
+      | "setTrustedRelayer"
+      | "subscribeToPlan"
+      | "subscriptionPlans"
+      | "teams"
       | "totalDownloads"
       | "totalFiles"
       | "totalFolders"
+      | "totalSubscriptionPlans"
+      | "totalTeams"
       | "totalVolume"
       | "totalWebhooks"
       | "transferOwnership"
+      | "trustedRelayers"
       | "updateFileMetadata"
       | "updateFilePrivacy"
       | "updateFileRules"
       | "updateFolder"
+      | "updateSubscriptionPlan"
+      | "updateTeam"
       | "updateWebhook"
       | "uploadFile"
       | "uploadFileDetailed"
       | "uploadFilesBatch"
-      | "userFiles"
-      | "userFolders"
-      | "userWebhooks"
+      | "uploadFilesBatchWithConfidentialRules"
       | "webhooks"
       | "withdraw"
       | "withdrawERC20"
@@ -136,6 +228,7 @@ export interface FhenixDropBoxInterface extends Interface {
     nameOrSignatureOrTopic:
       | "AccessRevoked"
       | "BatchDownloaded"
+      | "ConfidentialRulesUpdated"
       | "FileAccessed"
       | "FileDeactivated"
       | "FileDownloaded"
@@ -146,29 +239,57 @@ export interface FhenixDropBoxInterface extends Interface {
       | "FileRulesUpdated"
       | "FileUploaded"
       | "FolderCreated"
+      | "FolderTeamPermissionUpdated"
       | "FolderUpdated"
       | "OwnershipTransferred"
+      | "RelayedUpload"
+      | "SubscriptionPaid"
+      | "SubscriptionPlanCreated"
+      | "SubscriptionPlanUpdated"
+      | "TeamCreated"
+      | "TeamMemberUpdated"
+      | "TrustedRelayerUpdated"
       | "WebhookRegistered"
       | "WebhookUpdated"
   ): EventFragment;
 
   encodeFunctionData(
-    functionFragment: "MAX_BATCH_SIZE",
-    values?: undefined
-  ): string;
-  encodeFunctionData(functionFragment: "MAX_PRICE", values?: undefined): string;
-  encodeFunctionData(
-    functionFragment: "authorizedUsers",
+    functionFragment: "activeSubscriptionPaidUntil",
     values: [BigNumberish, AddressLike]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "addTeamMember",
+    values: [BigNumberish, AddressLike, BigNumberish]
   ): string;
   encodeFunctionData(
     functionFragment: "batchDownloadFiles",
     values: [BigNumberish[]]
   ): string;
   encodeFunctionData(
+    functionFragment: "canViewFolder",
+    values: [BigNumberish, AddressLike]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "canWriteFolder",
+    values: [BigNumberish, AddressLike]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "cancelSubscription",
+    values: [BigNumberish]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "clearConfidentialRules",
+    values: [BigNumberish]
+  ): string;
+  encodeFunctionData(
     functionFragment: "createFolder",
     values: [string, string]
   ): string;
+  encodeFunctionData(
+    functionFragment: "createSubscriptionPlan",
+    values: [BigNumberish, BigNumberish, BigNumberish, BigNumberish]
+  ): string;
+  encodeFunctionData(functionFragment: "createTeam", values: [string]): string;
   encodeFunctionData(
     functionFragment: "deactivateFile",
     values: [BigNumberish]
@@ -177,11 +298,6 @@ export interface FhenixDropBoxInterface extends Interface {
     functionFragment: "downloadFile",
     values: [BigNumberish]
   ): string;
-  encodeFunctionData(
-    functionFragment: "downloadHistory",
-    values: [BigNumberish, AddressLike]
-  ): string;
-  encodeFunctionData(functionFragment: "files", values: [BigNumberish]): string;
   encodeFunctionData(
     functionFragment: "folders",
     values: [BigNumberish]
@@ -195,7 +311,15 @@ export interface FhenixDropBoxInterface extends Interface {
     values?: undefined
   ): string;
   encodeFunctionData(
+    functionFragment: "getConfidentialRuleHandles",
+    values: [BigNumberish]
+  ): string;
+  encodeFunctionData(
     functionFragment: "getEncryptionInfo",
+    values: [BigNumberish]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "getFileAnalytics",
     values: [BigNumberish]
   ): string;
   encodeFunctionData(
@@ -219,6 +343,10 @@ export interface FhenixDropBoxInterface extends Interface {
     values: [BigNumberish]
   ): string;
   encodeFunctionData(
+    functionFragment: "getFileSubscriptionPlans",
+    values: [BigNumberish]
+  ): string;
+  encodeFunctionData(
     functionFragment: "getFilesByFolder",
     values: [BigNumberish]
   ): string;
@@ -235,7 +363,15 @@ export interface FhenixDropBoxInterface extends Interface {
     values?: undefined
   ): string;
   encodeFunctionData(
+    functionFragment: "getMyTeams",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
     functionFragment: "getMyWebhooks",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "getProductionStats",
     values?: undefined
   ): string;
   encodeFunctionData(
@@ -243,6 +379,30 @@ export interface FhenixDropBoxInterface extends Interface {
     values: [BigNumberish]
   ): string;
   encodeFunctionData(functionFragment: "getStats", values?: undefined): string;
+  encodeFunctionData(
+    functionFragment: "getTeamMembers",
+    values: [BigNumberish]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "getVisibleFilesByFolder",
+    values: [BigNumberish]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "getVisibleFolders",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "getWebhookFileOwner",
+    values: [BigNumberish]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "grantFolderToTeam",
+    values: [BigNumberish, BigNumberish, BigNumberish]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "hasActiveSubscription",
+    values: [BigNumberish, AddressLike]
+  ): string;
   encodeFunctionData(
     functionFragment: "isFileExpired",
     values: [BigNumberish]
@@ -261,6 +421,19 @@ export interface FhenixDropBoxInterface extends Interface {
     values: [BytesLike, string, BigNumberish]
   ): string;
   encodeFunctionData(
+    functionFragment: "relayedUploadFilesBatch",
+    values: [
+      FhenixDropBox.UploadInputStruct[],
+      AddressLike,
+      BytesLike,
+      BytesLike
+    ]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "removeTeamMember",
+    values: [BigNumberish, AddressLike]
+  ): string;
+  encodeFunctionData(
     functionFragment: "renounceOwnership",
     values?: undefined
   ): string;
@@ -272,6 +445,27 @@ export interface FhenixDropBoxInterface extends Interface {
     functionFragment: "revokeAccess",
     values: [BigNumberish, AddressLike]
   ): string;
+  encodeFunctionData(
+    functionFragment: "revokeFolderTeam",
+    values: [BigNumberish]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "setConfidentialRules",
+    values: [BigNumberish, FhenixDropBox.ConfidentialRuleInputStruct]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "setTrustedRelayer",
+    values: [AddressLike, boolean]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "subscribeToPlan",
+    values: [BigNumberish, BigNumberish, BytesLike]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "subscriptionPlans",
+    values: [BigNumberish]
+  ): string;
+  encodeFunctionData(functionFragment: "teams", values: [BigNumberish]): string;
   encodeFunctionData(
     functionFragment: "totalDownloads",
     values?: undefined
@@ -285,6 +479,14 @@ export interface FhenixDropBoxInterface extends Interface {
     values?: undefined
   ): string;
   encodeFunctionData(
+    functionFragment: "totalSubscriptionPlans",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "totalTeams",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
     functionFragment: "totalVolume",
     values?: undefined
   ): string;
@@ -294,6 +496,10 @@ export interface FhenixDropBoxInterface extends Interface {
   ): string;
   encodeFunctionData(
     functionFragment: "transferOwnership",
+    values: [AddressLike]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "trustedRelayers",
     values: [AddressLike]
   ): string;
   encodeFunctionData(
@@ -311,6 +517,14 @@ export interface FhenixDropBoxInterface extends Interface {
   encodeFunctionData(
     functionFragment: "updateFolder",
     values: [BigNumberish, string, string, boolean]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "updateSubscriptionPlan",
+    values: [BigNumberish, BigNumberish, BigNumberish, BigNumberish, boolean]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "updateTeam",
+    values: [BigNumberish, string, boolean]
   ): string;
   encodeFunctionData(
     functionFragment: "updateWebhook",
@@ -337,16 +551,11 @@ export interface FhenixDropBoxInterface extends Interface {
     values: [FhenixDropBox.UploadInputStruct[]]
   ): string;
   encodeFunctionData(
-    functionFragment: "userFiles",
-    values: [AddressLike, BigNumberish]
-  ): string;
-  encodeFunctionData(
-    functionFragment: "userFolders",
-    values: [AddressLike, BigNumberish]
-  ): string;
-  encodeFunctionData(
-    functionFragment: "userWebhooks",
-    values: [AddressLike, BigNumberish]
+    functionFragment: "uploadFilesBatchWithConfidentialRules",
+    values: [
+      FhenixDropBox.UploadInputStruct[],
+      FhenixDropBox.ConfidentialRuleInputStruct[]
+    ]
   ): string;
   encodeFunctionData(
     functionFragment: "webhooks",
@@ -359,12 +568,11 @@ export interface FhenixDropBoxInterface extends Interface {
   ): string;
 
   decodeFunctionResult(
-    functionFragment: "MAX_BATCH_SIZE",
+    functionFragment: "activeSubscriptionPaidUntil",
     data: BytesLike
   ): Result;
-  decodeFunctionResult(functionFragment: "MAX_PRICE", data: BytesLike): Result;
   decodeFunctionResult(
-    functionFragment: "authorizedUsers",
+    functionFragment: "addTeamMember",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -372,9 +580,30 @@ export interface FhenixDropBoxInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
+    functionFragment: "canViewFolder",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "canWriteFolder",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "cancelSubscription",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "clearConfidentialRules",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "createFolder",
     data: BytesLike
   ): Result;
+  decodeFunctionResult(
+    functionFragment: "createSubscriptionPlan",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(functionFragment: "createTeam", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "deactivateFile",
     data: BytesLike
@@ -383,11 +612,6 @@ export interface FhenixDropBoxInterface extends Interface {
     functionFragment: "downloadFile",
     data: BytesLike
   ): Result;
-  decodeFunctionResult(
-    functionFragment: "downloadHistory",
-    data: BytesLike
-  ): Result;
-  decodeFunctionResult(functionFragment: "files", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "folders", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "getAccessInfo",
@@ -395,7 +619,15 @@ export interface FhenixDropBoxInterface extends Interface {
   ): Result;
   decodeFunctionResult(functionFragment: "getBalance", data: BytesLike): Result;
   decodeFunctionResult(
+    functionFragment: "getConfidentialRuleHandles",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "getEncryptionInfo",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "getFileAnalytics",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -419,6 +651,10 @@ export interface FhenixDropBoxInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
+    functionFragment: "getFileSubscriptionPlans",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "getFilesByFolder",
     data: BytesLike
   ): Result;
@@ -431,8 +667,13 @@ export interface FhenixDropBoxInterface extends Interface {
     functionFragment: "getMyFolders",
     data: BytesLike
   ): Result;
+  decodeFunctionResult(functionFragment: "getMyTeams", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "getMyWebhooks",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "getProductionStats",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -440,6 +681,30 @@ export interface FhenixDropBoxInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "getStats", data: BytesLike): Result;
+  decodeFunctionResult(
+    functionFragment: "getTeamMembers",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "getVisibleFilesByFolder",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "getVisibleFolders",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "getWebhookFileOwner",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "grantFolderToTeam",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "hasActiveSubscription",
+    data: BytesLike
+  ): Result;
   decodeFunctionResult(
     functionFragment: "isFileExpired",
     data: BytesLike
@@ -458,6 +723,14 @@ export interface FhenixDropBoxInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
+    functionFragment: "relayedUploadFilesBatch",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "removeTeamMember",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "renounceOwnership",
     data: BytesLike
   ): Result;
@@ -470,6 +743,27 @@ export interface FhenixDropBoxInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
+    functionFragment: "revokeFolderTeam",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "setConfidentialRules",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "setTrustedRelayer",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "subscribeToPlan",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "subscriptionPlans",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(functionFragment: "teams", data: BytesLike): Result;
+  decodeFunctionResult(
     functionFragment: "totalDownloads",
     data: BytesLike
   ): Result;
@@ -478,6 +772,11 @@ export interface FhenixDropBoxInterface extends Interface {
     functionFragment: "totalFolders",
     data: BytesLike
   ): Result;
+  decodeFunctionResult(
+    functionFragment: "totalSubscriptionPlans",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(functionFragment: "totalTeams", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "totalVolume",
     data: BytesLike
@@ -488,6 +787,10 @@ export interface FhenixDropBoxInterface extends Interface {
   ): Result;
   decodeFunctionResult(
     functionFragment: "transferOwnership",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "trustedRelayers",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -507,6 +810,11 @@ export interface FhenixDropBoxInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
+    functionFragment: "updateSubscriptionPlan",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(functionFragment: "updateTeam", data: BytesLike): Result;
+  decodeFunctionResult(
     functionFragment: "updateWebhook",
     data: BytesLike
   ): Result;
@@ -519,13 +827,8 @@ export interface FhenixDropBoxInterface extends Interface {
     functionFragment: "uploadFilesBatch",
     data: BytesLike
   ): Result;
-  decodeFunctionResult(functionFragment: "userFiles", data: BytesLike): Result;
   decodeFunctionResult(
-    functionFragment: "userFolders",
-    data: BytesLike
-  ): Result;
-  decodeFunctionResult(
-    functionFragment: "userWebhooks",
+    functionFragment: "uploadFilesBatchWithConfidentialRules",
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "webhooks", data: BytesLike): Result;
@@ -555,6 +858,34 @@ export namespace BatchDownloadedEvent {
   export interface OutputObject {
     downloader: string;
     fileIds: bigint[];
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace ConfidentialRulesUpdatedEvent {
+  export type InputTuple = [
+    fileId: BigNumberish,
+    enabled: boolean,
+    priceHandle: BytesLike,
+    maxDownloadsHandle: BytesLike,
+    expiresAtHandle: BytesLike
+  ];
+  export type OutputTuple = [
+    fileId: bigint,
+    enabled: boolean,
+    priceHandle: string,
+    maxDownloadsHandle: string,
+    expiresAtHandle: string
+  ];
+  export interface OutputObject {
+    fileId: bigint;
+    enabled: boolean;
+    priceHandle: string;
+    maxDownloadsHandle: string;
+    expiresAtHandle: string;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -781,6 +1112,31 @@ export namespace FolderCreatedEvent {
   export type LogDescription = TypedLogDescription<Event>;
 }
 
+export namespace FolderTeamPermissionUpdatedEvent {
+  export type InputTuple = [
+    folderId: BigNumberish,
+    teamId: BigNumberish,
+    minRole: BigNumberish,
+    active: boolean
+  ];
+  export type OutputTuple = [
+    folderId: bigint,
+    teamId: bigint,
+    minRole: bigint,
+    active: boolean
+  ];
+  export interface OutputObject {
+    folderId: bigint;
+    teamId: bigint;
+    minRole: bigint;
+    active: boolean;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
 export namespace FolderUpdatedEvent {
   export type InputTuple = [
     folderId: BigNumberish,
@@ -812,6 +1168,165 @@ export namespace OwnershipTransferredEvent {
   export interface OutputObject {
     previousOwner: string;
     newOwner: string;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace RelayedUploadEvent {
+  export type InputTuple = [
+    relayer: AddressLike,
+    fileIds: BigNumberish[],
+    ownerCommitment: BytesLike,
+    intentHash: BytesLike
+  ];
+  export type OutputTuple = [
+    relayer: string,
+    fileIds: bigint[],
+    ownerCommitment: string,
+    intentHash: string
+  ];
+  export interface OutputObject {
+    relayer: string;
+    fileIds: bigint[];
+    ownerCommitment: string;
+    intentHash: string;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace SubscriptionPaidEvent {
+  export type InputTuple = [
+    planId: BigNumberish,
+    fileId: BigNumberish,
+    subscriber: AddressLike,
+    paidUntil: BigNumberish,
+    periods: BigNumberish
+  ];
+  export type OutputTuple = [
+    planId: bigint,
+    fileId: bigint,
+    subscriber: string,
+    paidUntil: bigint,
+    periods: bigint
+  ];
+  export interface OutputObject {
+    planId: bigint;
+    fileId: bigint;
+    subscriber: string;
+    paidUntil: bigint;
+    periods: bigint;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace SubscriptionPlanCreatedEvent {
+  export type InputTuple = [
+    planId: BigNumberish,
+    fileId: BigNumberish,
+    pricePerPeriod: BigNumberish,
+    periodSeconds: BigNumberish
+  ];
+  export type OutputTuple = [
+    planId: bigint,
+    fileId: bigint,
+    pricePerPeriod: bigint,
+    periodSeconds: bigint
+  ];
+  export interface OutputObject {
+    planId: bigint;
+    fileId: bigint;
+    pricePerPeriod: bigint;
+    periodSeconds: bigint;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace SubscriptionPlanUpdatedEvent {
+  export type InputTuple = [
+    planId: BigNumberish,
+    pricePerPeriod: BigNumberish,
+    periodSeconds: BigNumberish,
+    active: boolean
+  ];
+  export type OutputTuple = [
+    planId: bigint,
+    pricePerPeriod: bigint,
+    periodSeconds: bigint,
+    active: boolean
+  ];
+  export interface OutputObject {
+    planId: bigint;
+    pricePerPeriod: bigint;
+    periodSeconds: bigint;
+    active: boolean;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace TeamCreatedEvent {
+  export type InputTuple = [
+    teamId: BigNumberish,
+    owner: AddressLike,
+    name: string
+  ];
+  export type OutputTuple = [teamId: bigint, owner: string, name: string];
+  export interface OutputObject {
+    teamId: bigint;
+    owner: string;
+    name: string;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace TeamMemberUpdatedEvent {
+  export type InputTuple = [
+    teamId: BigNumberish,
+    member: AddressLike,
+    role: BigNumberish,
+    active: boolean
+  ];
+  export type OutputTuple = [
+    teamId: bigint,
+    member: string,
+    role: bigint,
+    active: boolean
+  ];
+  export interface OutputObject {
+    teamId: bigint;
+    member: string;
+    role: bigint;
+    active: boolean;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace TrustedRelayerUpdatedEvent {
+  export type InputTuple = [relayer: AddressLike, trusted: boolean];
+  export type OutputTuple = [relayer: string, trusted: boolean];
+  export interface OutputObject {
+    relayer: string;
+    trusted: boolean;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -912,18 +1427,44 @@ export interface FhenixDropBox extends BaseContract {
     event?: TCEvent
   ): Promise<this>;
 
-  MAX_BATCH_SIZE: TypedContractMethod<[], [bigint], "view">;
-
-  MAX_PRICE: TypedContractMethod<[], [bigint], "view">;
-
-  authorizedUsers: TypedContractMethod<
-    [arg0: BigNumberish, arg1: AddressLike],
-    [boolean],
+  activeSubscriptionPaidUntil: TypedContractMethod<
+    [fileId: BigNumberish, subscriber: AddressLike],
+    [bigint],
     "view"
+  >;
+
+  addTeamMember: TypedContractMethod<
+    [teamId: BigNumberish, member: AddressLike, role: BigNumberish],
+    [void],
+    "nonpayable"
   >;
 
   batchDownloadFiles: TypedContractMethod<
     [fileIds: BigNumberish[]],
+    [void],
+    "nonpayable"
+  >;
+
+  canViewFolder: TypedContractMethod<
+    [folderId: BigNumberish, account: AddressLike],
+    [boolean],
+    "view"
+  >;
+
+  canWriteFolder: TypedContractMethod<
+    [folderId: BigNumberish, account: AddressLike],
+    [boolean],
+    "view"
+  >;
+
+  cancelSubscription: TypedContractMethod<
+    [planId: BigNumberish],
+    [void],
+    "nonpayable"
+  >;
+
+  clearConfidentialRules: TypedContractMethod<
+    [fileId: BigNumberish],
     [void],
     "nonpayable"
   >;
@@ -933,6 +1474,19 @@ export interface FhenixDropBox extends BaseContract {
     [bigint],
     "nonpayable"
   >;
+
+  createSubscriptionPlan: TypedContractMethod<
+    [
+      fileId: BigNumberish,
+      pricePerPeriod: BigNumberish,
+      periodSeconds: BigNumberish,
+      maxPeriods: BigNumberish
+    ],
+    [bigint],
+    "nonpayable"
+  >;
+
+  createTeam: TypedContractMethod<[name: string], [bigint], "nonpayable">;
 
   deactivateFile: TypedContractMethod<
     [fileId: BigNumberish],
@@ -944,60 +1498,6 @@ export interface FhenixDropBox extends BaseContract {
     [fileId: BigNumberish],
     [void],
     "nonpayable"
-  >;
-
-  downloadHistory: TypedContractMethod<
-    [arg0: BigNumberish, arg1: AddressLike],
-    [boolean],
-    "view"
-  >;
-
-  files: TypedContractMethod<
-    [arg0: BigNumberish],
-    [
-      [
-        string,
-        string,
-        string,
-        bigint,
-        bigint,
-        bigint,
-        bigint,
-        bigint,
-        bigint,
-        string,
-        string,
-        boolean,
-        boolean,
-        boolean,
-        string,
-        bigint,
-        boolean,
-        string,
-        boolean
-      ] & {
-        ipfsHash: string;
-        fileName: string;
-        mimeType: string;
-        fileSize: bigint;
-        createdAt: bigint;
-        price: bigint;
-        maxDownloads: bigint;
-        downloadCount: bigint;
-        expiresAt: bigint;
-        accessCodeHash: string;
-        owner: string;
-        isActive: boolean;
-        hasPassword: boolean;
-        contentEncrypted: boolean;
-        encryptionKeyHash: string;
-        folderId: bigint;
-        previewEnabled: boolean;
-        previewHash: string;
-        anonymousUpload: boolean;
-      }
-    ],
-    "view"
   >;
 
   folders: TypedContractMethod<
@@ -1024,12 +1524,44 @@ export interface FhenixDropBox extends BaseContract {
 
   getBalance: TypedContractMethod<[], [bigint], "view">;
 
+  getConfidentialRuleHandles: TypedContractMethod<
+    [fileId: BigNumberish],
+    [
+      [boolean, string, string, string, string, string, bigint] & {
+        enabled: boolean;
+        priceHandle: string;
+        maxDownloadsHandle: string;
+        expiresAtHandle: string;
+        accessCodeHashHighHandle: string;
+        accessCodeHashLowHandle: string;
+        updatedAt: bigint;
+      }
+    ],
+    "view"
+  >;
+
   getEncryptionInfo: TypedContractMethod<
     [fileId: BigNumberish],
     [
       [boolean, boolean] & {
         contentEncrypted: boolean;
         isOwnerOrAuthorized: boolean;
+      }
+    ],
+    "view"
+  >;
+
+  getFileAnalytics: TypedContractMethod<
+    [fileId: BigNumberish],
+    [
+      [bigint, bigint, bigint, bigint, boolean, boolean, bigint] & {
+        downloads: bigint;
+        remainingDownloads: bigint;
+        price: bigint;
+        expiresAt: bigint;
+        active: boolean;
+        confidentialRulesActive: boolean;
+        subscriptionPlanCount: bigint;
       }
     ],
     "view"
@@ -1078,6 +1610,12 @@ export interface FhenixDropBox extends BaseContract {
     "view"
   >;
 
+  getFileSubscriptionPlans: TypedContractMethod<
+    [fileId: BigNumberish],
+    [bigint[]],
+    "view"
+  >;
+
   getFilesByFolder: TypedContractMethod<
     [folderId: BigNumberish],
     [bigint[]],
@@ -1090,7 +1628,25 @@ export interface FhenixDropBox extends BaseContract {
 
   getMyFolders: TypedContractMethod<[], [bigint[]], "view">;
 
+  getMyTeams: TypedContractMethod<[], [bigint[]], "view">;
+
   getMyWebhooks: TypedContractMethod<[], [bigint[]], "view">;
+
+  getProductionStats: TypedContractMethod<
+    [],
+    [
+      [bigint, bigint, bigint, bigint, bigint, bigint, bigint] & {
+        _totalFiles: bigint;
+        _totalDownloads: bigint;
+        _totalVolume: bigint;
+        _totalFolders: bigint;
+        _totalWebhooks: bigint;
+        _totalTeams: bigint;
+        _totalSubscriptionPlans: bigint;
+      }
+    ],
+    "view"
+  >;
 
   getRemainingDownloads: TypedContractMethod<
     [fileId: BigNumberish],
@@ -1108,6 +1664,38 @@ export interface FhenixDropBox extends BaseContract {
         _myFileCount: bigint;
       }
     ],
+    "view"
+  >;
+
+  getTeamMembers: TypedContractMethod<
+    [teamId: BigNumberish],
+    [string[]],
+    "view"
+  >;
+
+  getVisibleFilesByFolder: TypedContractMethod<
+    [folderId: BigNumberish],
+    [bigint[]],
+    "view"
+  >;
+
+  getVisibleFolders: TypedContractMethod<[], [bigint[]], "view">;
+
+  getWebhookFileOwner: TypedContractMethod<
+    [fileId: BigNumberish],
+    [string],
+    "view"
+  >;
+
+  grantFolderToTeam: TypedContractMethod<
+    [folderId: BigNumberish, teamId: BigNumberish, minRole: BigNumberish],
+    [void],
+    "nonpayable"
+  >;
+
+  hasActiveSubscription: TypedContractMethod<
+    [fileId: BigNumberish, subscriber: AddressLike],
+    [boolean],
     "view"
   >;
 
@@ -1133,6 +1721,23 @@ export interface FhenixDropBox extends BaseContract {
     "nonpayable"
   >;
 
+  relayedUploadFilesBatch: TypedContractMethod<
+    [
+      inputs: FhenixDropBox.UploadInputStruct[],
+      logicalOwner: AddressLike,
+      ownerCommitment: BytesLike,
+      intentHash: BytesLike
+    ],
+    [bigint[]],
+    "nonpayable"
+  >;
+
+  removeTeamMember: TypedContractMethod<
+    [teamId: BigNumberish, member: AddressLike],
+    [void],
+    "nonpayable"
+  >;
+
   renounceOwnership: TypedContractMethod<[], [void], "nonpayable">;
 
   requestAccess: TypedContractMethod<
@@ -1147,11 +1752,74 @@ export interface FhenixDropBox extends BaseContract {
     "nonpayable"
   >;
 
+  revokeFolderTeam: TypedContractMethod<
+    [folderId: BigNumberish],
+    [void],
+    "nonpayable"
+  >;
+
+  setConfidentialRules: TypedContractMethod<
+    [
+      fileId: BigNumberish,
+      encryptedRules: FhenixDropBox.ConfidentialRuleInputStruct
+    ],
+    [void],
+    "nonpayable"
+  >;
+
+  setTrustedRelayer: TypedContractMethod<
+    [relayer: AddressLike, trusted: boolean],
+    [void],
+    "nonpayable"
+  >;
+
+  subscribeToPlan: TypedContractMethod<
+    [planId: BigNumberish, periods: BigNumberish, accessCode_: BytesLike],
+    [void],
+    "payable"
+  >;
+
+  subscriptionPlans: TypedContractMethod<
+    [arg0: BigNumberish],
+    [
+      [bigint, bigint, string, bigint, bigint, bigint, boolean, bigint] & {
+        id: bigint;
+        fileId: bigint;
+        owner: string;
+        pricePerPeriod: bigint;
+        periodSeconds: bigint;
+        maxPeriods: bigint;
+        isActive: boolean;
+        createdAt: bigint;
+      }
+    ],
+    "view"
+  >;
+
+  teams: TypedContractMethod<
+    [arg0: BigNumberish],
+    [
+      [bigint, string, string, bigint, bigint, boolean] & {
+        id: bigint;
+        owner: string;
+        name: string;
+        createdAt: bigint;
+        memberCount: bigint;
+        isActive: boolean;
+      }
+    ],
+    "view"
+  >;
+
   totalDownloads: TypedContractMethod<[], [bigint], "view">;
 
   totalFiles: TypedContractMethod<[], [bigint], "view">;
 
   totalFolders: TypedContractMethod<[], [bigint], "view">;
+
+  totalSubscriptionPlans: TypedContractMethod<[], [bigint], "view">;
+
+  totalTeams: TypedContractMethod<[], [bigint], "view">;
 
   totalVolume: TypedContractMethod<[], [bigint], "view">;
 
@@ -1162,6 +1830,8 @@ export interface FhenixDropBox extends BaseContract {
     [void],
     "nonpayable"
   >;
+
+  trustedRelayers: TypedContractMethod<[arg0: AddressLike], [boolean], "view">;
 
   updateFileMetadata: TypedContractMethod<
     [
@@ -1196,6 +1866,24 @@ export interface FhenixDropBox extends BaseContract {
 
   updateFolder: TypedContractMethod<
     [folderId: BigNumberish, name: string, color: string, isActive: boolean],
+    [void],
+    "nonpayable"
+  >;
+
+  updateSubscriptionPlan: TypedContractMethod<
+    [
+      planId: BigNumberish,
+      pricePerPeriod: BigNumberish,
+      periodSeconds: BigNumberish,
+      maxPeriods: BigNumberish,
+      isActive: boolean
+    ],
+    [void],
+    "nonpayable"
+  >;
+
+  updateTeam: TypedContractMethod<
+    [teamId: BigNumberish, name: string, isActive: boolean],
     [void],
     "nonpayable"
   >;
@@ -1238,22 +1926,13 @@ export interface FhenixDropBox extends BaseContract {
     "nonpayable"
   >;
 
-  userFiles: TypedContractMethod<
-    [arg0: AddressLike, arg1: BigNumberish],
-    [bigint],
-    "view"
-  >;
-
-  userFolders: TypedContractMethod<
-    [arg0: AddressLike, arg1: BigNumberish],
-    [bigint],
-    "view"
-  >;
-
-  userWebhooks: TypedContractMethod<
-    [arg0: AddressLike, arg1: BigNumberish],
-    [bigint],
-    "view"
+  uploadFilesBatchWithConfidentialRules: TypedContractMethod<
+    [
+      inputs: FhenixDropBox.UploadInputStruct[],
+      encryptedRules: FhenixDropBox.ConfidentialRuleInputStruct[]
+    ],
+    [bigint[]],
+    "nonpayable"
   >;
 
   webhooks: TypedContractMethod<
@@ -1285,86 +1964,66 @@ export interface FhenixDropBox extends BaseContract {
   ): T;
 
   getFunction(
-    nameOrSignature: "MAX_BATCH_SIZE"
-  ): TypedContractMethod<[], [bigint], "view">;
-  getFunction(
-    nameOrSignature: "MAX_PRICE"
-  ): TypedContractMethod<[], [bigint], "view">;
-  getFunction(
-    nameOrSignature: "authorizedUsers"
+    nameOrSignature: "activeSubscriptionPaidUntil"
   ): TypedContractMethod<
-    [arg0: BigNumberish, arg1: AddressLike],
-    [boolean],
+    [fileId: BigNumberish, subscriber: AddressLike],
+    [bigint],
     "view"
+  >;
+  getFunction(
+    nameOrSignature: "addTeamMember"
+  ): TypedContractMethod<
+    [teamId: BigNumberish, member: AddressLike, role: BigNumberish],
+    [void],
+    "nonpayable"
   >;
   getFunction(
     nameOrSignature: "batchDownloadFiles"
   ): TypedContractMethod<[fileIds: BigNumberish[]], [void], "nonpayable">;
   getFunction(
+    nameOrSignature: "canViewFolder"
+  ): TypedContractMethod<
+    [folderId: BigNumberish, account: AddressLike],
+    [boolean],
+    "view"
+  >;
+  getFunction(
+    nameOrSignature: "canWriteFolder"
+  ): TypedContractMethod<
+    [folderId: BigNumberish, account: AddressLike],
+    [boolean],
+    "view"
+  >;
+  getFunction(
+    nameOrSignature: "cancelSubscription"
+  ): TypedContractMethod<[planId: BigNumberish], [void], "nonpayable">;
+  getFunction(
+    nameOrSignature: "clearConfidentialRules"
+  ): TypedContractMethod<[fileId: BigNumberish], [void], "nonpayable">;
+  getFunction(
     nameOrSignature: "createFolder"
   ): TypedContractMethod<[name: string, color: string], [bigint], "nonpayable">;
+  getFunction(
+    nameOrSignature: "createSubscriptionPlan"
+  ): TypedContractMethod<
+    [
+      fileId: BigNumberish,
+      pricePerPeriod: BigNumberish,
+      periodSeconds: BigNumberish,
+      maxPeriods: BigNumberish
+    ],
+    [bigint],
+    "nonpayable"
+  >;
+  getFunction(
+    nameOrSignature: "createTeam"
+  ): TypedContractMethod<[name: string], [bigint], "nonpayable">;
   getFunction(
     nameOrSignature: "deactivateFile"
   ): TypedContractMethod<[fileId: BigNumberish], [void], "nonpayable">;
   getFunction(
     nameOrSignature: "downloadFile"
   ): TypedContractMethod<[fileId: BigNumberish], [void], "nonpayable">;
-  getFunction(
-    nameOrSignature: "downloadHistory"
-  ): TypedContractMethod<
-    [arg0: BigNumberish, arg1: AddressLike],
-    [boolean],
-    "view"
-  >;
-  getFunction(
-    nameOrSignature: "files"
-  ): TypedContractMethod<
-    [arg0: BigNumberish],
-    [
-      [
-        string,
-        string,
-        string,
-        bigint,
-        bigint,
-        bigint,
-        bigint,
-        bigint,
-        bigint,
-        string,
-        string,
-        boolean,
-        boolean,
-        boolean,
-        string,
-        bigint,
-        boolean,
-        string,
-        boolean
-      ] & {
-        ipfsHash: string;
-        fileName: string;
-        mimeType: string;
-        fileSize: bigint;
-        createdAt: bigint;
-        price: bigint;
-        maxDownloads: bigint;
-        downloadCount: bigint;
-        expiresAt: bigint;
-        accessCodeHash: string;
-        owner: string;
-        isActive: boolean;
-        hasPassword: boolean;
-        contentEncrypted: boolean;
-        encryptionKeyHash: string;
-        folderId: bigint;
-        previewEnabled: boolean;
-        previewHash: string;
-        anonymousUpload: boolean;
-      }
-    ],
-    "view"
-  >;
   getFunction(
     nameOrSignature: "folders"
   ): TypedContractMethod<
@@ -1393,6 +2052,23 @@ export interface FhenixDropBox extends BaseContract {
     nameOrSignature: "getBalance"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
+    nameOrSignature: "getConfidentialRuleHandles"
+  ): TypedContractMethod<
+    [fileId: BigNumberish],
+    [
+      [boolean, string, string, string, string, string, bigint] & {
+        enabled: boolean;
+        priceHandle: string;
+        maxDownloadsHandle: string;
+        expiresAtHandle: string;
+        accessCodeHashHighHandle: string;
+        accessCodeHashLowHandle: string;
+        updatedAt: bigint;
+      }
+    ],
+    "view"
+  >;
+  getFunction(
     nameOrSignature: "getEncryptionInfo"
   ): TypedContractMethod<
     [fileId: BigNumberish],
@@ -1400,6 +2076,23 @@ export interface FhenixDropBox extends BaseContract {
       [boolean, boolean] & {
         contentEncrypted: boolean;
         isOwnerOrAuthorized: boolean;
+      }
+    ],
+    "view"
+  >;
+  getFunction(
+    nameOrSignature: "getFileAnalytics"
+  ): TypedContractMethod<
+    [fileId: BigNumberish],
+    [
+      [bigint, bigint, bigint, bigint, boolean, boolean, bigint] & {
+        downloads: bigint;
+        remainingDownloads: bigint;
+        price: bigint;
+        expiresAt: bigint;
+        active: boolean;
+        confidentialRulesActive: boolean;
+        subscriptionPlanCount: bigint;
       }
     ],
     "view"
@@ -1453,6 +2146,9 @@ export interface FhenixDropBox extends BaseContract {
     "view"
   >;
   getFunction(
+    nameOrSignature: "getFileSubscriptionPlans"
+  ): TypedContractMethod<[fileId: BigNumberish], [bigint[]], "view">;
+  getFunction(
     nameOrSignature: "getFilesByFolder"
   ): TypedContractMethod<[folderId: BigNumberish], [bigint[]], "view">;
   getFunction(
@@ -1465,8 +2161,28 @@ export interface FhenixDropBox extends BaseContract {
     nameOrSignature: "getMyFolders"
   ): TypedContractMethod<[], [bigint[]], "view">;
   getFunction(
+    nameOrSignature: "getMyTeams"
+  ): TypedContractMethod<[], [bigint[]], "view">;
+  getFunction(
     nameOrSignature: "getMyWebhooks"
   ): TypedContractMethod<[], [bigint[]], "view">;
+  getFunction(
+    nameOrSignature: "getProductionStats"
+  ): TypedContractMethod<
+    [],
+    [
+      [bigint, bigint, bigint, bigint, bigint, bigint, bigint] & {
+        _totalFiles: bigint;
+        _totalDownloads: bigint;
+        _totalVolume: bigint;
+        _totalFolders: bigint;
+        _totalWebhooks: bigint;
+        _totalTeams: bigint;
+        _totalSubscriptionPlans: bigint;
+      }
+    ],
+    "view"
+  >;
   getFunction(
     nameOrSignature: "getRemainingDownloads"
   ): TypedContractMethod<[fileId: BigNumberish], [bigint], "view">;
@@ -1482,6 +2198,32 @@ export interface FhenixDropBox extends BaseContract {
         _myFileCount: bigint;
       }
     ],
+    "view"
+  >;
+  getFunction(
+    nameOrSignature: "getTeamMembers"
+  ): TypedContractMethod<[teamId: BigNumberish], [string[]], "view">;
+  getFunction(
+    nameOrSignature: "getVisibleFilesByFolder"
+  ): TypedContractMethod<[folderId: BigNumberish], [bigint[]], "view">;
+  getFunction(
+    nameOrSignature: "getVisibleFolders"
+  ): TypedContractMethod<[], [bigint[]], "view">;
+  getFunction(
+    nameOrSignature: "getWebhookFileOwner"
+  ): TypedContractMethod<[fileId: BigNumberish], [string], "view">;
+  getFunction(
+    nameOrSignature: "grantFolderToTeam"
+  ): TypedContractMethod<
+    [folderId: BigNumberish, teamId: BigNumberish, minRole: BigNumberish],
+    [void],
+    "nonpayable"
+  >;
+  getFunction(
+    nameOrSignature: "hasActiveSubscription"
+  ): TypedContractMethod<
+    [fileId: BigNumberish, subscriber: AddressLike],
+    [boolean],
     "view"
   >;
   getFunction(
@@ -1508,6 +2250,25 @@ export interface FhenixDropBox extends BaseContract {
     "nonpayable"
   >;
   getFunction(
+    nameOrSignature: "relayedUploadFilesBatch"
+  ): TypedContractMethod<
+    [
+      inputs: FhenixDropBox.UploadInputStruct[],
+      logicalOwner: AddressLike,
+      ownerCommitment: BytesLike,
+      intentHash: BytesLike
+    ],
+    [bigint[]],
+    "nonpayable"
+  >;
+  getFunction(
+    nameOrSignature: "removeTeamMember"
+  ): TypedContractMethod<
+    [teamId: BigNumberish, member: AddressLike],
+    [void],
+    "nonpayable"
+  >;
+  getFunction(
     nameOrSignature: "renounceOwnership"
   ): TypedContractMethod<[], [void], "nonpayable">;
   getFunction(
@@ -1525,6 +2286,67 @@ export interface FhenixDropBox extends BaseContract {
     "nonpayable"
   >;
   getFunction(
+    nameOrSignature: "revokeFolderTeam"
+  ): TypedContractMethod<[folderId: BigNumberish], [void], "nonpayable">;
+  getFunction(
+    nameOrSignature: "setConfidentialRules"
+  ): TypedContractMethod<
+    [
+      fileId: BigNumberish,
+      encryptedRules: FhenixDropBox.ConfidentialRuleInputStruct
+    ],
+    [void],
+    "nonpayable"
+  >;
+  getFunction(
+    nameOrSignature: "setTrustedRelayer"
+  ): TypedContractMethod<
+    [relayer: AddressLike, trusted: boolean],
+    [void],
+    "nonpayable"
+  >;
+  getFunction(
+    nameOrSignature: "subscribeToPlan"
+  ): TypedContractMethod<
+    [planId: BigNumberish, periods: BigNumberish, accessCode_: BytesLike],
+    [void],
+    "payable"
+  >;
+  getFunction(
+    nameOrSignature: "subscriptionPlans"
+  ): TypedContractMethod<
+    [arg0: BigNumberish],
+    [
+      [bigint, bigint, string, bigint, bigint, bigint, boolean, bigint] & {
+        id: bigint;
+        fileId: bigint;
+        owner: string;
+        pricePerPeriod: bigint;
+        periodSeconds: bigint;
+        maxPeriods: bigint;
+        isActive: boolean;
+        createdAt: bigint;
+      }
+    ],
+    "view"
+  >;
+  getFunction(
+    nameOrSignature: "teams"
+  ): TypedContractMethod<
+    [arg0: BigNumberish],
+    [
+      [bigint, string, string, bigint, bigint, boolean] & {
+        id: bigint;
+        owner: string;
+        name: string;
+        createdAt: bigint;
+        memberCount: bigint;
+        isActive: boolean;
+      }
+    ],
+    "view"
+  >;
+  getFunction(
     nameOrSignature: "totalDownloads"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
@@ -1532,6 +2354,12 @@ export interface FhenixDropBox extends BaseContract {
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
     nameOrSignature: "totalFolders"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "totalSubscriptionPlans"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "totalTeams"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
     nameOrSignature: "totalVolume"
@@ -1542,6 +2370,9 @@ export interface FhenixDropBox extends BaseContract {
   getFunction(
     nameOrSignature: "transferOwnership"
   ): TypedContractMethod<[newOwner: AddressLike], [void], "nonpayable">;
+  getFunction(
+    nameOrSignature: "trustedRelayers"
+  ): TypedContractMethod<[arg0: AddressLike], [boolean], "view">;
   getFunction(
     nameOrSignature: "updateFileMetadata"
   ): TypedContractMethod<
@@ -1580,6 +2411,26 @@ export interface FhenixDropBox extends BaseContract {
     nameOrSignature: "updateFolder"
   ): TypedContractMethod<
     [folderId: BigNumberish, name: string, color: string, isActive: boolean],
+    [void],
+    "nonpayable"
+  >;
+  getFunction(
+    nameOrSignature: "updateSubscriptionPlan"
+  ): TypedContractMethod<
+    [
+      planId: BigNumberish,
+      pricePerPeriod: BigNumberish,
+      periodSeconds: BigNumberish,
+      maxPeriods: BigNumberish,
+      isActive: boolean
+    ],
+    [void],
+    "nonpayable"
+  >;
+  getFunction(
+    nameOrSignature: "updateTeam"
+  ): TypedContractMethod<
+    [teamId: BigNumberish, name: string, isActive: boolean],
     [void],
     "nonpayable"
   >;
@@ -1626,25 +2477,14 @@ export interface FhenixDropBox extends BaseContract {
     "nonpayable"
   >;
   getFunction(
-    nameOrSignature: "userFiles"
+    nameOrSignature: "uploadFilesBatchWithConfidentialRules"
   ): TypedContractMethod<
-    [arg0: AddressLike, arg1: BigNumberish],
-    [bigint],
-    "view"
-  >;
-  getFunction(
-    nameOrSignature: "userFolders"
-  ): TypedContractMethod<
-    [arg0: AddressLike, arg1: BigNumberish],
-    [bigint],
-    "view"
-  >;
-  getFunction(
-    nameOrSignature: "userWebhooks"
-  ): TypedContractMethod<
-    [arg0: AddressLike, arg1: BigNumberish],
-    [bigint],
-    "view"
+    [
+      inputs: FhenixDropBox.UploadInputStruct[],
+      encryptedRules: FhenixDropBox.ConfidentialRuleInputStruct[]
+    ],
+    [bigint[]],
+    "nonpayable"
   >;
   getFunction(
     nameOrSignature: "webhooks"
@@ -1683,6 +2523,13 @@ export interface FhenixDropBox extends BaseContract {
     BatchDownloadedEvent.InputTuple,
     BatchDownloadedEvent.OutputTuple,
     BatchDownloadedEvent.OutputObject
+  >;
+  getEvent(
+    key: "ConfidentialRulesUpdated"
+  ): TypedContractEvent<
+    ConfidentialRulesUpdatedEvent.InputTuple,
+    ConfidentialRulesUpdatedEvent.OutputTuple,
+    ConfidentialRulesUpdatedEvent.OutputObject
   >;
   getEvent(
     key: "FileAccessed"
@@ -1755,6 +2602,13 @@ export interface FhenixDropBox extends BaseContract {
     FolderCreatedEvent.OutputObject
   >;
   getEvent(
+    key: "FolderTeamPermissionUpdated"
+  ): TypedContractEvent<
+    FolderTeamPermissionUpdatedEvent.InputTuple,
+    FolderTeamPermissionUpdatedEvent.OutputTuple,
+    FolderTeamPermissionUpdatedEvent.OutputObject
+  >;
+  getEvent(
     key: "FolderUpdated"
   ): TypedContractEvent<
     FolderUpdatedEvent.InputTuple,
@@ -1767,6 +2621,55 @@ export interface FhenixDropBox extends BaseContract {
     OwnershipTransferredEvent.InputTuple,
     OwnershipTransferredEvent.OutputTuple,
     OwnershipTransferredEvent.OutputObject
+  >;
+  getEvent(
+    key: "RelayedUpload"
+  ): TypedContractEvent<
+    RelayedUploadEvent.InputTuple,
+    RelayedUploadEvent.OutputTuple,
+    RelayedUploadEvent.OutputObject
+  >;
+  getEvent(
+    key: "SubscriptionPaid"
+  ): TypedContractEvent<
+    SubscriptionPaidEvent.InputTuple,
+    SubscriptionPaidEvent.OutputTuple,
+    SubscriptionPaidEvent.OutputObject
+  >;
+  getEvent(
+    key: "SubscriptionPlanCreated"
+  ): TypedContractEvent<
+    SubscriptionPlanCreatedEvent.InputTuple,
+    SubscriptionPlanCreatedEvent.OutputTuple,
+    SubscriptionPlanCreatedEvent.OutputObject
+  >;
+  getEvent(
+    key: "SubscriptionPlanUpdated"
+  ): TypedContractEvent<
+    SubscriptionPlanUpdatedEvent.InputTuple,
+    SubscriptionPlanUpdatedEvent.OutputTuple,
+    SubscriptionPlanUpdatedEvent.OutputObject
+  >;
+  getEvent(
+    key: "TeamCreated"
+  ): TypedContractEvent<
+    TeamCreatedEvent.InputTuple,
+    TeamCreatedEvent.OutputTuple,
+    TeamCreatedEvent.OutputObject
+  >;
+  getEvent(
+    key: "TeamMemberUpdated"
+  ): TypedContractEvent<
+    TeamMemberUpdatedEvent.InputTuple,
+    TeamMemberUpdatedEvent.OutputTuple,
+    TeamMemberUpdatedEvent.OutputObject
+  >;
+  getEvent(
+    key: "TrustedRelayerUpdated"
+  ): TypedContractEvent<
+    TrustedRelayerUpdatedEvent.InputTuple,
+    TrustedRelayerUpdatedEvent.OutputTuple,
+    TrustedRelayerUpdatedEvent.OutputObject
   >;
   getEvent(
     key: "WebhookRegistered"
@@ -1804,6 +2707,17 @@ export interface FhenixDropBox extends BaseContract {
       BatchDownloadedEvent.InputTuple,
       BatchDownloadedEvent.OutputTuple,
       BatchDownloadedEvent.OutputObject
+    >;
+
+    "ConfidentialRulesUpdated(uint256,bool,bytes32,bytes32,bytes32)": TypedContractEvent<
+      ConfidentialRulesUpdatedEvent.InputTuple,
+      ConfidentialRulesUpdatedEvent.OutputTuple,
+      ConfidentialRulesUpdatedEvent.OutputObject
+    >;
+    ConfidentialRulesUpdated: TypedContractEvent<
+      ConfidentialRulesUpdatedEvent.InputTuple,
+      ConfidentialRulesUpdatedEvent.OutputTuple,
+      ConfidentialRulesUpdatedEvent.OutputObject
     >;
 
     "FileAccessed(uint256,address,uint256)": TypedContractEvent<
@@ -1916,6 +2830,17 @@ export interface FhenixDropBox extends BaseContract {
       FolderCreatedEvent.OutputObject
     >;
 
+    "FolderTeamPermissionUpdated(uint256,uint256,uint8,bool)": TypedContractEvent<
+      FolderTeamPermissionUpdatedEvent.InputTuple,
+      FolderTeamPermissionUpdatedEvent.OutputTuple,
+      FolderTeamPermissionUpdatedEvent.OutputObject
+    >;
+    FolderTeamPermissionUpdated: TypedContractEvent<
+      FolderTeamPermissionUpdatedEvent.InputTuple,
+      FolderTeamPermissionUpdatedEvent.OutputTuple,
+      FolderTeamPermissionUpdatedEvent.OutputObject
+    >;
+
     "FolderUpdated(uint256,string,string,bool)": TypedContractEvent<
       FolderUpdatedEvent.InputTuple,
       FolderUpdatedEvent.OutputTuple,
@@ -1936,6 +2861,83 @@ export interface FhenixDropBox extends BaseContract {
       OwnershipTransferredEvent.InputTuple,
       OwnershipTransferredEvent.OutputTuple,
       OwnershipTransferredEvent.OutputObject
+    >;
+
+    "RelayedUpload(address,uint256[],bytes32,bytes32)": TypedContractEvent<
+      RelayedUploadEvent.InputTuple,
+      RelayedUploadEvent.OutputTuple,
+      RelayedUploadEvent.OutputObject
+    >;
+    RelayedUpload: TypedContractEvent<
+      RelayedUploadEvent.InputTuple,
+      RelayedUploadEvent.OutputTuple,
+      RelayedUploadEvent.OutputObject
+    >;
+
+    "SubscriptionPaid(uint256,uint256,address,uint256,uint256)": TypedContractEvent<
+      SubscriptionPaidEvent.InputTuple,
+      SubscriptionPaidEvent.OutputTuple,
+      SubscriptionPaidEvent.OutputObject
+    >;
+    SubscriptionPaid: TypedContractEvent<
+      SubscriptionPaidEvent.InputTuple,
+      SubscriptionPaidEvent.OutputTuple,
+      SubscriptionPaidEvent.OutputObject
+    >;
+
+    "SubscriptionPlanCreated(uint256,uint256,uint256,uint256)": TypedContractEvent<
+      SubscriptionPlanCreatedEvent.InputTuple,
+      SubscriptionPlanCreatedEvent.OutputTuple,
+      SubscriptionPlanCreatedEvent.OutputObject
+    >;
+    SubscriptionPlanCreated: TypedContractEvent<
+      SubscriptionPlanCreatedEvent.InputTuple,
+      SubscriptionPlanCreatedEvent.OutputTuple,
+      SubscriptionPlanCreatedEvent.OutputObject
+    >;
+
+    "SubscriptionPlanUpdated(uint256,uint256,uint256,bool)": TypedContractEvent<
+      SubscriptionPlanUpdatedEvent.InputTuple,
+      SubscriptionPlanUpdatedEvent.OutputTuple,
+      SubscriptionPlanUpdatedEvent.OutputObject
+    >;
+    SubscriptionPlanUpdated: TypedContractEvent<
+      SubscriptionPlanUpdatedEvent.InputTuple,
+      SubscriptionPlanUpdatedEvent.OutputTuple,
+      SubscriptionPlanUpdatedEvent.OutputObject
+    >;
+
+    "TeamCreated(uint256,address,string)": TypedContractEvent<
+      TeamCreatedEvent.InputTuple,
+      TeamCreatedEvent.OutputTuple,
+      TeamCreatedEvent.OutputObject
+    >;
+    TeamCreated: TypedContractEvent<
+      TeamCreatedEvent.InputTuple,
+      TeamCreatedEvent.OutputTuple,
+      TeamCreatedEvent.OutputObject
+    >;
+
+    "TeamMemberUpdated(uint256,address,uint8,bool)": TypedContractEvent<
+      TeamMemberUpdatedEvent.InputTuple,
+      TeamMemberUpdatedEvent.OutputTuple,
+      TeamMemberUpdatedEvent.OutputObject
+    >;
+    TeamMemberUpdated: TypedContractEvent<
+      TeamMemberUpdatedEvent.InputTuple,
+      TeamMemberUpdatedEvent.OutputTuple,
+      TeamMemberUpdatedEvent.OutputObject
+    >;
+
+    "TrustedRelayerUpdated(address,bool)": TypedContractEvent<
+      TrustedRelayerUpdatedEvent.InputTuple,
+      TrustedRelayerUpdatedEvent.OutputTuple,
+      TrustedRelayerUpdatedEvent.OutputObject
+    >;
+    TrustedRelayerUpdated: TypedContractEvent<
+      TrustedRelayerUpdatedEvent.InputTuple,
+      TrustedRelayerUpdatedEvent.OutputTuple,
+      TrustedRelayerUpdatedEvent.OutputObject
     >;
 
     "WebhookRegistered(uint256,address,bytes32,uint8)": TypedContractEvent<

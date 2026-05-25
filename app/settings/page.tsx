@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { useAccount, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
+import { useAccount, useReadContract, useReadContracts, useSignMessage, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
+import { sepolia } from "wagmi/chains"
+import { getAddress, parseEventLogs } from "viem"
 import { useTheme } from "next-themes"
 import {
   Shield,
@@ -33,6 +35,11 @@ import {
   type WebhookInfo,
 } from "@/lib/fhenix"
 import { DEFAULT_PREFERENCES, getPreferences, savePreferences, type AppPreferences } from "@/lib/preferences"
+import {
+  WEBHOOK_ALL_EVENT_MASK,
+  buildWebhookTargetRegistrationMessage,
+  hashWebhookTargetEndpoint,
+} from "@/lib/webhooks"
 
 interface SettingRowProps {
   title: string
@@ -128,6 +135,7 @@ function ThemeOption({ theme, label, gradient, active, onClick }: ThemeOptionPro
 export default function SettingsPage() {
   const router = useRouter()
   const { address, isConnected } = useAccount()
+  const { signMessageAsync } = useSignMessage()
   const { theme, setTheme } = useTheme()
   const [copied, setCopied] = useState(false)
   const [copiedContract, setCopiedContract] = useState(false)
@@ -137,8 +145,14 @@ export default function SettingsPage() {
   const [webhookUrl, setWebhookUrl] = useState("")
   const [webhookLabel, setWebhookLabel] = useState("")
   const [webhookNotice, setWebhookNotice] = useState<string | null>(null)
-  const { writeContract, data: webhookTxHash, isPending: webhookPending } = useWriteContract()
-  const { isLoading: webhookWaiting, isSuccess: webhookSuccess } = useWaitForTransactionReceipt({ hash: webhookTxHash })
+  const [pendingWebhookTarget, setPendingWebhookTarget] = useState<{
+    endpoint: string
+    label: string
+    eventMask: number
+  } | null>(null)
+  const [handledWebhookTargetTx, setHandledWebhookTargetTx] = useState<string | null>(null)
+  const { writeContract, data: webhookTxHash, isPending: webhookPending, error: webhookWriteError } = useWriteContract()
+  const { data: webhookReceipt, isLoading: webhookWaiting, isSuccess: webhookSuccess } = useWaitForTransactionReceipt({ hash: webhookTxHash })
 
   const { data: webhookIds, refetch: refetchWebhookIds } = useReadContract({
     address: CONTRACT_ADDRESS as `0x${string}`,
@@ -217,29 +231,119 @@ export default function SettingsPage() {
   }, [address])
 
   useEffect(() => {
-    if (!webhookSuccess) return
-    setWebhookNotice("Webhook registry updated on-chain.")
-    void refetchWebhookIds()
-    void refetchWebhookReads()
-    setTimeout(() => setWebhookNotice(null), 2200)
-  }, [refetchWebhookIds, refetchWebhookReads, webhookSuccess])
+    if (!webhookWriteError) return
+    setWebhookNotice(webhookWriteError.message || "Webhook transaction was not submitted.")
+    setPendingWebhookTarget(null)
+  }, [webhookWriteError])
+
+  useEffect(() => {
+    if (!webhookSuccess || !webhookReceipt || !pendingWebhookTarget || !webhookTxHash || !address) return
+    if (handledWebhookTargetTx === webhookTxHash) return
+
+    setHandledWebhookTargetTx(webhookTxHash)
+
+    const registerTarget = async () => {
+      try {
+        const endpointHash = hashWebhookTargetEndpoint(pendingWebhookTarget.endpoint)
+        const registeredLogs = parseEventLogs({
+          abi: FHENIX_DROPBOX_ABI,
+          logs: webhookReceipt.logs,
+          eventName: "WebhookRegistered",
+        })
+        const registeredLog = registeredLogs.find((log) => {
+          const args = log.args as Record<string, unknown>
+          return (
+            String(args.owner || "").toLowerCase() === address.toLowerCase() &&
+            String(args.endpointHash || "").toLowerCase() === endpointHash.toLowerCase()
+          )
+        })
+        const webhookId = (registeredLog?.args as Record<string, unknown> | undefined)?.webhookId
+
+        if (webhookId == null) {
+          throw new Error("WebhookRegistered event was not found in the transaction receipt")
+        }
+        const webhookIdString = webhookId.toString()
+
+        const timestamp = Date.now().toString()
+        const normalizedOwner = getAddress(address)
+        const message = buildWebhookTargetRegistrationMessage({
+          contractAddress: CONTRACT_ADDRESS,
+          chainId: sepolia.id,
+          owner: normalizedOwner,
+          webhookId: webhookIdString,
+          endpoint: pendingWebhookTarget.endpoint,
+          endpointHash,
+          eventMask: pendingWebhookTarget.eventMask,
+          timestamp,
+        })
+        const signature = await signMessageAsync({ message })
+        const response = await fetch("/api/webhooks/targets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            owner: normalizedOwner,
+            webhookId: webhookIdString,
+            endpoint: pendingWebhookTarget.endpoint,
+            label: pendingWebhookTarget.label,
+            eventMask: pendingWebhookTarget.eventMask,
+            timestamp,
+            signature,
+          }),
+        })
+        const result = await response.json().catch(() => ({})) as { error?: string }
+
+        if (!response.ok) {
+          throw new Error(result.error || "Webhook target could not be saved for delivery")
+        }
+
+        setWebhookNotice("Webhook registered on-chain and saved for worker delivery.")
+        setWebhookUrl("")
+        setWebhookLabel("")
+        setPendingWebhookTarget(null)
+        void refetchWebhookIds()
+        void refetchWebhookReads()
+        setTimeout(() => setWebhookNotice(null), 2600)
+      } catch (error) {
+        setWebhookNotice(error instanceof Error ? error.message : "Webhook target registration failed.")
+        setPendingWebhookTarget(null)
+        void refetchWebhookIds()
+        void refetchWebhookReads()
+      }
+    }
+
+    void registerTarget()
+  }, [
+    address,
+    handledWebhookTargetTx,
+    pendingWebhookTarget,
+    refetchWebhookIds,
+    refetchWebhookReads,
+    signMessageAsync,
+    webhookReceipt,
+    webhookSuccess,
+    webhookTxHash,
+  ])
 
   const handleRegisterWebhook = () => {
-    if (!webhookUrl.trim()) return
+    const endpoint = webhookUrl.trim()
+    if (!endpoint) return
+    const label = webhookLabel.trim() || "Production webhook"
+    const eventMask = WEBHOOK_ALL_EVENT_MASK
+
+    setPendingWebhookTarget({ endpoint, label, eventMask })
+    setHandledWebhookTargetTx(null)
+    setWebhookNotice(null)
 
     writeContract({
       address: CONTRACT_ADDRESS as `0x${string}`,
       abi: FHENIX_DROPBOX_ABI,
       functionName: "registerWebhook",
       args: [
-        hashWebhookEndpoint(webhookUrl),
-        webhookLabel.trim() || "Production webhook",
-        7,
+        hashWebhookEndpoint(endpoint),
+        label,
+        eventMask,
       ],
     })
-
-    setWebhookUrl("")
-    setWebhookLabel("")
   }
 
   const tabs = [
@@ -622,10 +726,10 @@ export default function SettingsPage() {
               />
               <button
                 onClick={handleRegisterWebhook}
-                disabled={!webhookUrl.trim() || webhookPending || webhookWaiting}
+                disabled={!webhookUrl.trim() || webhookPending || webhookWaiting || !!pendingWebhookTarget}
                 className="rounded-xl bg-[#111] px-5 py-3 text-sm font-medium text-white disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {webhookPending || webhookWaiting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {webhookPending || webhookWaiting || pendingWebhookTarget ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 Register
               </button>
             </div>

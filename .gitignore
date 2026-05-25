@@ -18,3 +18,33 @@ node_modules
 
 .vercel
 .env
+.webhook-checkpoints.json
+.webhook-targets.json
+dev-server.log
+
+# Generated Hardhat/TypeChain dependency outputs
+artifacts/@cofhe/
+artifacts/@fhenixprotocol/
+artifacts/hardhat/
+artifacts/@openzeppelin/contracts/interfaces/
+artifacts/@openzeppelin/contracts/utils/Bytes.sol/
+artifacts/@openzeppelin/contracts/utils/Panic.sol/
+artifacts/@openzeppelin/contracts/utils/ShortStrings.sol/
+artifacts/@openzeppelin/contracts/utils/Strings.sol/
+artifacts/@openzeppelin/contracts/utils/cryptography/
+artifacts/@openzeppelin/contracts/utils/math/
+cache/cofhe-stubs/
+typechain-types/@cofhe/
+typechain-types/@fhenixprotocol/
+typechain-types/@openzeppelin/contracts/interfaces/
+typechain-types/@openzeppelin/contracts/utils/ShortStrings.ts
+typechain-types/@openzeppelin/contracts/utils/Strings.ts
+typechain-types/@openzeppelin/contracts/utils/cryptography/
+typechain-types/@openzeppelin/contracts/utils/math/
+typechain-types/factories/@cofhe/
+typechain-types/factories/@fhenixprotocol/
+typechain-types/factories/@openzeppelin/contracts/interfaces/
+typechain-types/factories/@openzeppelin/contracts/utils/ShortStrings__factory.ts
+typechain-types/factories/@openzeppelin/contracts/utils/Strings__factory.ts
+typechain-types/factories/@openzeppelin/contracts/utils/cryptography/
+typechain-types/factories/@openzeppelin/contracts/utils/math/

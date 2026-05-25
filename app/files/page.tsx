@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { useAccount, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
+import { useAccount, useConnect, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import {
   AlertCircle,
   CheckCircle2,
@@ -21,31 +21,42 @@ import {
   Search,
   Shield,
   Upload,
+  Wallet,
+  Users,
+  CreditCard,
 } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import {
   CONTRACT_ADDRESS,
   FHENIX_DROPBOX_ABI,
+  TEAM_ROLES,
   formatDate,
   formatNativePrice,
   getRemainingDownloads,
+  parseNativePrice,
+  tupleToConfidentialRuleHandles,
   tupleToFileInfo,
   tupleToFileMetadata,
   tupleToFilePrivacy,
   tupleToFolderInfo,
+  tupleToTeamInfo,
+  type ConfidentialRuleHandles,
   type FilePrivacy,
   type FileInfo,
   type FileMetadata,
   type FolderInfo,
+  type TeamInfo,
 } from "@/lib/fhenix"
 import { decryptFile, formatFileSize, getFromIPFS } from "@/lib/ipfs"
 import { buildShareUrl, getAllLocalFileSecrets, type LocalFileSecret } from "@/lib/share-links"
 
 interface FileRecord {
   id: string
+  owned: boolean
   info?: FileInfo
   metadata?: FileMetadata
   privacy?: FilePrivacy
+  confidential?: ConfidentialRuleHandles
   secret?: LocalFileSecret
 }
 
@@ -79,20 +90,29 @@ async function downloadRecord(record: FileRecord) {
   downloadBlob(blob, name)
 }
 
+function hasUsableShareLink(record: FileRecord) {
+  return !record.info?.contentEncrypted || !!(record.secret?.encryptionKey && record.secret.encryptionIv)
+}
+
 export default function FilesPage() {
   const { address, isConnected } = useAccount()
+  const { connect, connectors, isPending: isConnecting } = useConnect()
   const [mounted, setMounted] = useState(false)
   const [baseUrl, setBaseUrl] = useState("")
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedFiles, setSelectedFiles] = useState<string[]>([])
   const [activeFolder, setActiveFolder] = useState("all")
   const [folderName, setFolderName] = useState("")
+  const [teamName, setTeamName] = useState("")
+  const [teamMember, setTeamMember] = useState("")
+  const [teamShareId, setTeamShareId] = useState("")
+  const [planDrafts, setPlanDrafts] = useState<Record<string, { price: string; periodDays: string }>>({})
   const [notice, setNotice] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [qrModalFile, setQrModalFile] = useState<FileRecord | null>(null)
   const [pendingBatch, setPendingBatch] = useState<{ ids: string[]; hash: `0x${string}` } | null>(null)
 
-  const { writeContract, writeContractAsync, data: txHash, isPending: isWriting } = useWriteContract()
+  const { writeContract, writeContractAsync, data: txHash, isPending: isWriting, error: writeError } = useWriteContract()
   const { isLoading: isWaiting, isSuccess: txSuccess } = useWaitForTransactionReceipt({ hash: txHash })
 
   useEffect(() => {
@@ -114,6 +134,20 @@ export default function FilesPage() {
     query: { enabled: mounted && isConnected && !!address },
   })
 
+  const { data: visibleFolderIds, refetch: refetchVisibleFolders } = useReadContract({
+    address: CONTRACT_ADDRESS as `0x${string}`,
+    abi: FHENIX_DROPBOX_ABI,
+    functionName: "getVisibleFolders",
+    query: { enabled: mounted && isConnected && !!address },
+  })
+
+  const { data: myTeamIds, refetch: refetchTeams } = useReadContract({
+    address: CONTRACT_ADDRESS as `0x${string}`,
+    abi: FHENIX_DROPBOX_ABI,
+    functionName: "getMyTeams",
+    query: { enabled: mounted && isConnected && !!address },
+  })
+
   const { data: stats } = useReadContract({
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
@@ -121,8 +155,43 @@ export default function FilesPage() {
     query: { enabled: mounted && isConnected },
   })
 
-  const fileIds = useMemo(() => (Array.isArray(myFileIds) ? myFileIds.map((id) => id.toString()) : []), [myFileIds])
-  const folderIds = useMemo(() => (Array.isArray(myFolderIds) ? myFolderIds.map((id) => id.toString()) : []), [myFolderIds])
+  const { data: activeFolderFileIds, refetch: refetchActiveFolderFiles } = useReadContract({
+    address: CONTRACT_ADDRESS as `0x${string}`,
+    abi: FHENIX_DROPBOX_ABI,
+    functionName: "getVisibleFilesByFolder",
+    args: [BigInt(activeFolder === "all" ? "0" : activeFolder)],
+    query: { enabled: mounted && isConnected && !!address && activeFolder !== "all" },
+  })
+
+  const ownFileIds = useMemo(() => (Array.isArray(myFileIds) ? myFileIds.map((id) => id.toString()) : []), [myFileIds])
+  const visibleActiveFileIds = useMemo(() => (Array.isArray(activeFolderFileIds) ? activeFolderFileIds.map((id) => id.toString()) : []), [activeFolderFileIds])
+  const visibleFolderFileContracts = useMemo(() => (
+    activeFolder === "all" && Array.isArray(visibleFolderIds)
+      ? visibleFolderIds.map((id) => ({
+        address: CONTRACT_ADDRESS as `0x${string}`,
+        abi: FHENIX_DROPBOX_ABI,
+        functionName: "getVisibleFilesByFolder",
+        args: [BigInt(id)],
+      }))
+      : []
+  ), [activeFolder, visibleFolderIds])
+  const { data: visibleFolderFileResults, refetch: refetchVisibleFolderFileReads } = useReadContracts({
+    contracts: visibleFolderFileContracts,
+    query: { enabled: mounted && isConnected && !!address && visibleFolderFileContracts.length > 0 },
+  })
+  const allVisibleFileIds = useMemo(() => {
+    if (activeFolder !== "all") return visibleActiveFileIds
+    return (visibleFolderFileResults || []).flatMap((result) => (
+      Array.isArray(result.result) ? result.result.map((id) => id.toString()) : []
+    ))
+  }, [activeFolder, visibleActiveFileIds, visibleFolderFileResults])
+  const fileIds = useMemo(() => Array.from(new Set([...ownFileIds, ...allVisibleFileIds])), [allVisibleFileIds, ownFileIds])
+  const folderIds = useMemo(() => {
+    const own = Array.isArray(myFolderIds) ? myFolderIds.map((id) => id.toString()) : []
+    const visible = Array.isArray(visibleFolderIds) ? visibleFolderIds.map((id) => id.toString()) : []
+    return Array.from(new Set([...own, ...visible]))
+  }, [myFolderIds, visibleFolderIds])
+  const teamIds = useMemo(() => (Array.isArray(myTeamIds) ? myTeamIds.map((id) => id.toString()) : []), [myTeamIds])
 
   const fileContracts = useMemo(() => fileIds.flatMap((id) => [
     {
@@ -141,6 +210,12 @@ export default function FilesPage() {
       address: CONTRACT_ADDRESS as `0x${string}`,
       abi: FHENIX_DROPBOX_ABI,
       functionName: "getFilePrivacy",
+      args: [BigInt(id)],
+    },
+    {
+      address: CONTRACT_ADDRESS as `0x${string}`,
+      abi: FHENIX_DROPBOX_ABI,
+      functionName: "getConfidentialRuleHandles",
       args: [BigInt(id)],
     },
   ]), [fileIds])
@@ -162,6 +237,18 @@ export default function FilesPage() {
     query: { enabled: mounted && folderContracts.length > 0 },
   })
 
+  const teamContracts = useMemo(() => teamIds.map((id) => ({
+    address: CONTRACT_ADDRESS as `0x${string}`,
+    abi: FHENIX_DROPBOX_ABI,
+    functionName: "teams",
+    args: [BigInt(id)],
+  })), [teamIds])
+
+  const { data: teamReadResults, refetch: refetchTeamReads } = useReadContracts({
+    contracts: teamContracts,
+    query: { enabled: mounted && teamContracts.length > 0 },
+  })
+
   const localSecrets = useMemo(() => (address && mounted ? getAllLocalFileSecrets(address) : []), [address, mounted])
 
   const folders = useMemo(() => {
@@ -181,13 +268,21 @@ export default function FilesPage() {
     ]
   }, [folderReadResults])
 
+  const teams = useMemo(() => (
+    (teamReadResults || [])
+      .map((result) => tupleToTeamInfo(result.result))
+      .filter(Boolean) as TeamInfo[]
+  ), [teamReadResults])
+
   const records = useMemo<FileRecord[]>(() => fileIds.map((id, index) => {
-    const info = tupleToFileInfo(fileReadResults?.[index * 3]?.result)
-    const metadata = tupleToFileMetadata(fileReadResults?.[index * 3 + 1]?.result)
-    const privacy = tupleToFilePrivacy(fileReadResults?.[index * 3 + 2]?.result)
+    const baseIndex = index * 4
+    const info = tupleToFileInfo(fileReadResults?.[baseIndex]?.result)
+    const metadata = tupleToFileMetadata(fileReadResults?.[baseIndex + 1]?.result)
+    const privacy = tupleToFilePrivacy(fileReadResults?.[baseIndex + 2]?.result)
+    const confidential = tupleToConfidentialRuleHandles(fileReadResults?.[baseIndex + 3]?.result)
     const secret = localSecrets.find((item) => item.fileId === id)
-    return { id, info, metadata, privacy, secret }
-  }), [fileIds, fileReadResults, localSecrets])
+    return { id, owned: ownFileIds.includes(id), info, metadata, privacy, confidential, secret }
+  }), [fileIds, fileReadResults, localSecrets, ownFileIds])
 
   const filteredRecords = useMemo(() => records.filter((record) => {
     const name = record.secret?.fileName || record.metadata?.fileName || `File #${record.id}`
@@ -200,6 +295,10 @@ export default function FilesPage() {
     return matchesSearch && matchesFolder
   }), [activeFolder, records, searchQuery])
 
+  useEffect(() => {
+    setSelectedFiles([])
+  }, [activeFolder])
+
   const statValues = Array.isArray(stats) ? stats : [0n, 0n, 0n, 0n]
   const totalFiles = Number(statValues[0] || 0n)
   const totalDownloads = Number(statValues[1] || 0n)
@@ -210,9 +309,20 @@ export default function FilesPage() {
     if (!txSuccess) return
     void refetchFiles()
     void refetchFolders()
+    void refetchVisibleFolders()
+    void refetchTeams()
+    void refetchActiveFolderFiles()
+    void refetchVisibleFolderFileReads()
     void refetchFileReads()
     void refetchFolderReads()
-  }, [refetchFileReads, refetchFiles, refetchFolderReads, refetchFolders, txSuccess])
+    void refetchTeamReads()
+  }, [refetchActiveFolderFiles, refetchFileReads, refetchFiles, refetchFolderReads, refetchFolders, refetchTeamReads, refetchTeams, refetchVisibleFolderFileReads, refetchVisibleFolders, txSuccess])
+
+  useEffect(() => {
+    if (!writeError) return
+    setNotice(writeError.message || "Transaction was not submitted.")
+    setPendingBatch(null)
+  }, [writeError])
 
   useEffect(() => {
     if (!txSuccess || !pendingBatch || txHash !== pendingBatch.hash) return
@@ -251,6 +361,39 @@ export default function FilesPage() {
     setFolderName("")
   }
 
+  const createTeam = () => {
+    if (!teamName.trim()) return
+    writeContract({
+      address: CONTRACT_ADDRESS as `0x${string}`,
+      abi: FHENIX_DROPBOX_ABI,
+      functionName: "createTeam",
+      args: [teamName.trim()],
+    })
+    setTeamName("")
+  }
+
+  const addTeamMember = () => {
+    const selectedTeam = teams[0]
+    if (!selectedTeam || !teamMember.trim()) return
+    writeContract({
+      address: CONTRACT_ADDRESS as `0x${string}`,
+      abi: FHENIX_DROPBOX_ABI,
+      functionName: "addTeamMember",
+      args: [selectedTeam.id, teamMember.trim() as `0x${string}`, TEAM_ROLES.editor],
+    })
+    setTeamMember("")
+  }
+
+  const shareFolderWithTeam = () => {
+    if (!teamShareId || activeFolder === "all" || activeFolder === "0") return
+    writeContract({
+      address: CONTRACT_ADDRESS as `0x${string}`,
+      abi: FHENIX_DROPBOX_ABI,
+      functionName: "grantFolderToTeam",
+      args: [BigInt(activeFolder), BigInt(teamShareId), TEAM_ROLES.viewer],
+    })
+  }
+
   const moveFile = (fileId: string, folderId: string) => {
     writeContract({
       address: CONTRACT_ADDRESS as `0x${string}`,
@@ -269,8 +412,34 @@ export default function FilesPage() {
     })
   }
 
+  const updatePlanDraft = (fileId: string, patch: Partial<{ price: string; periodDays: string }>) => {
+    setPlanDrafts((current) => ({
+      ...current,
+      [fileId]: {
+        ...(current[fileId] ?? { price: "0.001", periodDays: "7" }),
+        ...patch,
+      },
+    }))
+  }
+
+  const createSubscriptionPlan = (fileId: string) => {
+    const draft = planDrafts[fileId] || { price: "0.001", periodDays: "7" }
+    writeContract({
+      address: CONTRACT_ADDRESS as `0x${string}`,
+      abi: FHENIX_DROPBOX_ABI,
+      functionName: "createSubscriptionPlan",
+      args: [BigInt(fileId), parseNativePrice(draft.price), BigInt(draft.periodDays) * 24n * 60n * 60n, 12n],
+    })
+  }
+
   const runBatchDownload = async () => {
-    const selected = records.filter((record) => selectedFiles.includes(record.id))
+    const selected = filteredRecords.filter((record) => selectedFiles.includes(record.id))
+    const selectedIds = selected.map((record) => record.id)
+    if (selectedIds.length === 0) {
+      setNotice("Select visible files before starting a batch download.")
+      return
+    }
+
     const missingKey = selected.find((record) => record.info?.contentEncrypted && (!record.secret?.encryptionKey || !record.secret.encryptionIv))
     if (missingKey) {
       const name = missingKey.secret?.fileName || missingKey.metadata?.fileName || `File #${missingKey.id}`
@@ -283,9 +452,9 @@ export default function FilesPage() {
         address: CONTRACT_ADDRESS as `0x${string}`,
         abi: FHENIX_DROPBOX_ABI,
         functionName: "batchDownloadFiles",
-        args: [selectedFiles.map((id) => BigInt(id))],
+        args: [selectedIds.map((id) => BigInt(id))],
       })
-      setPendingBatch({ ids: selectedFiles, hash })
+      setPendingBatch({ ids: selectedIds, hash })
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Batch download transaction failed")
     }
@@ -301,6 +470,33 @@ export default function FilesPage() {
     return (
       <div className="p-6">
         <div className="h-28 rounded-2xl bg-black/[0.05] animate-pulse" />
+      </div>
+    )
+  }
+
+  if (!isConnected) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#F5F4F0] px-6">
+        <div className="w-full max-w-md rounded-2xl border border-black/[0.07] bg-white p-8 text-center shadow-sm">
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-black/[0.04]">
+            <Wallet className="h-8 w-8 text-black/35" />
+          </div>
+          <h1 className="text-xl font-semibold text-[#111]">Connect Your Wallet</h1>
+          <p className="mt-2 text-sm text-black/50">Connect your wallet to manage files, folders, teams, subscriptions, and batch downloads.</p>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+            <button
+              onClick={() => connectors[0] && connect({ connector: connectors[0] })}
+              disabled={!connectors[0] || isConnecting}
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#111] px-4 py-3 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {isConnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
+              Connect Wallet
+            </button>
+            <Link href="/" className="inline-flex flex-1 items-center justify-center rounded-xl border border-black/[0.08] px-4 py-3 text-sm font-medium text-black/70 hover:bg-black/[0.03]">
+              Go Back
+            </Link>
+          </div>
+        </div>
       </div>
     )
   }
@@ -376,12 +572,74 @@ export default function FilesPage() {
             </div>
           </div>
 
+          <div className="rounded-2xl border border-black/[0.07] bg-white p-4">
+            <div className="mb-3 flex items-center gap-2 font-medium">
+              <Users className="h-4 w-4" />
+              Teams
+            </div>
+            <div className="space-y-2">
+              {teams.length === 0 ? (
+                <div className="rounded-xl bg-black/[0.02] p-3 text-xs text-black/40">No teams yet.</div>
+              ) : (
+                teams.map((team) => (
+                  <div key={team.id.toString()} className="rounded-xl bg-black/[0.02] p-3">
+                    <div className="truncate text-sm font-medium">{team.name}</div>
+                    <div className="text-xs text-black/40">{team.memberCount.toString()} member(s)</div>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="mt-4 space-y-2">
+              <div className="flex gap-2">
+                <input
+                  value={teamName}
+                  onChange={(event) => setTeamName(event.target.value)}
+                  placeholder="New team"
+                  className="min-w-0 flex-1 rounded-lg border border-black/[0.08] bg-black/[0.02] px-3 py-2 text-sm"
+                />
+                <button onClick={createTeam} disabled={isWriting || isWaiting} className="rounded-lg bg-[#111] px-3 text-white disabled:opacity-50">
+                  <Users className="h-4 w-4" />
+                </button>
+              </div>
+              <input
+                value={teamMember}
+                onChange={(event) => setTeamMember(event.target.value)}
+                placeholder="0x member as editor"
+                className="w-full rounded-lg border border-black/[0.08] bg-black/[0.02] px-3 py-2 text-sm"
+              />
+              <button
+                onClick={addTeamMember}
+                disabled={teams.length === 0 || !teamMember.trim() || isWriting || isWaiting}
+                className="w-full rounded-lg border border-black/[0.08] px-3 py-2 text-xs font-medium disabled:opacity-50"
+              >
+                Add to first team
+              </button>
+              <select
+                value={teamShareId}
+                onChange={(event) => setTeamShareId(event.target.value)}
+                className="w-full rounded-lg border border-black/[0.08] bg-black/[0.02] px-3 py-2 text-xs"
+              >
+                <option value="">Share active folder</option>
+                {teams.map((team) => (
+                  <option key={team.id.toString()} value={team.id.toString()}>{team.name}</option>
+                ))}
+              </select>
+              <button
+                onClick={shareFolderWithTeam}
+                disabled={!teamShareId || activeFolder === "all" || activeFolder === "0" || isWriting || isWaiting}
+                className="w-full rounded-lg bg-[#111] px-3 py-2 text-xs font-medium text-white disabled:opacity-50"
+              >
+                Grant viewer access
+              </button>
+            </div>
+          </div>
+
           <div className="rounded-2xl border border-black/[0.07] bg-white p-4 text-xs text-black/45">
             <div className="mb-2 flex items-center gap-2 text-sm font-medium text-black/70">
               <Shield className="h-4 w-4" />
-              Wave 4 Tools
+              Wave 5 Tools
             </div>
-            Folder moves and webhook endpoints are recorded on-chain. Secret file keys stay in this browser and in copied share links.
+            CoFHE rule handles, team folders, webhook delivery, and subscriptions are recorded on-chain. Secret file keys stay in this browser and copied share links.
           </div>
         </aside>
 
@@ -431,6 +689,7 @@ export default function FilesPage() {
                 {filteredRecords.map((record) => {
                   const name = record.secret?.fileName || record.metadata?.fileName || `File #${record.id}`
                   const folderId = record.metadata?.folderId?.toString() || "0"
+                  const canShareLink = hasUsableShareLink(record)
                   const shareUrl = buildShareUrl(baseUrl, record.id, {
                     fileName: name,
                     mimeType: record.secret?.mimeType || record.metadata?.mimeType || "",
@@ -465,6 +724,12 @@ export default function FilesPage() {
                                   Encrypted
                                 </span>
                               )}
+                              {record.confidential?.enabled && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
+                                  <Shield className="h-3 w-3" />
+                                  CoFHE rules
+                                </span>
+                              )}
                               {isAnonymous && (
                                 <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-700">
                                   <EyeOff className="h-3 w-3" />
@@ -483,37 +748,73 @@ export default function FilesPage() {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-                          <select
-                            value={folderId}
-                            onChange={(event) => moveFile(record.id, event.target.value)}
-                            className="rounded-lg border border-black/[0.08] bg-black/[0.02] px-3 py-2 text-xs"
-                            title="Move to folder"
-                          >
-                            {folders.map((folder) => (
-                              <option key={folder.id} value={folder.id}>{folder.name}</option>
-                            ))}
-                          </select>
-                          <button
-                            onClick={() => toggleAnonymous(record.id, isAnonymous)}
-                            className="rounded-lg border border-black/[0.08] p-2 hover:bg-black/[0.04]"
-                            title={isAnonymous ? "Show owner in contract lookups" : "Hide owner in public contract lookups"}
-                          >
-                            <EyeOff className={`h-4 w-4 ${isAnonymous ? "text-violet-600" : "text-black/45"}`} />
-                          </button>
-                          <button
-                            onClick={() => setQrModalFile(record)}
-                            className="rounded-lg border border-black/[0.08] p-2 hover:bg-black/[0.04]"
-                            title="QR code"
-                          >
-                            <QrCode className="h-4 w-4 text-black/55" />
-                          </button>
-                          <button
-                            onClick={() => copyToClipboard(shareUrl, record.id)}
-                            className="rounded-lg border border-black/[0.08] p-2 hover:bg-black/[0.04]"
-                            title="Copy secret link"
-                          >
-                            {copiedId === record.id ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4 text-black/55" />}
-                          </button>
+                          {record.owned && (
+                            <>
+                              <div className="flex items-center gap-1 rounded-lg border border-black/[0.08] bg-black/[0.02] p-1">
+                                <input
+                                  value={planDrafts[record.id]?.price ?? "0.001"}
+                                  onChange={(event) => updatePlanDraft(record.id, { price: event.target.value })}
+                                  className="w-20 bg-transparent px-2 text-xs outline-none"
+                                  type="number"
+                                  min="0"
+                                  step="0.001"
+                                  title="Subscription price in ETH"
+                                />
+                                <select
+                                  value={planDrafts[record.id]?.periodDays ?? "7"}
+                                  onChange={(event) => updatePlanDraft(record.id, { periodDays: event.target.value })}
+                                  className="bg-transparent text-xs outline-none"
+                                  title="Subscription period"
+                                >
+                                  <option value="1">1d</option>
+                                  <option value="7">7d</option>
+                                  <option value="30">30d</option>
+                                </select>
+                                <button
+                                  onClick={() => createSubscriptionPlan(record.id)}
+                                  className="rounded-md bg-[#111] p-1.5 text-white"
+                                  title="Create subscription plan"
+                                >
+                                  <CreditCard className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                              <select
+                                value={folderId}
+                                onChange={(event) => moveFile(record.id, event.target.value)}
+                                className="rounded-lg border border-black/[0.08] bg-black/[0.02] px-3 py-2 text-xs"
+                                title="Move to folder"
+                              >
+                                {folders.map((folder) => (
+                                  <option key={folder.id} value={folder.id}>{folder.name}</option>
+                                ))}
+                              </select>
+                              <button
+                                onClick={() => toggleAnonymous(record.id, isAnonymous)}
+                                className="rounded-lg border border-black/[0.08] p-2 hover:bg-black/[0.04]"
+                                title={isAnonymous ? "Show owner in contract lookups" : "Hide owner in public contract lookups"}
+                              >
+                                <EyeOff className={`h-4 w-4 ${isAnonymous ? "text-violet-600" : "text-black/45"}`} />
+                              </button>
+                            </>
+                          )}
+                          {canShareLink && (
+                            <>
+                              <button
+                                onClick={() => setQrModalFile(record)}
+                                className="rounded-lg border border-black/[0.08] p-2 hover:bg-black/[0.04]"
+                                title={record.info?.contentEncrypted ? "Secret QR code" : "QR code"}
+                              >
+                                <QrCode className="h-4 w-4 text-black/55" />
+                              </button>
+                              <button
+                                onClick={() => copyToClipboard(shareUrl, record.id)}
+                                className="rounded-lg border border-black/[0.08] p-2 hover:bg-black/[0.04]"
+                                title={record.info?.contentEncrypted ? "Copy secret link" : "Copy share link"}
+                              >
+                                {copiedId === record.id ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4 text-black/55" />}
+                              </button>
+                            </>
+                          )}
                           <Link href={`/share/${record.id}`} className="inline-flex items-center gap-1.5 rounded-lg bg-[#111] px-3 py-2 text-xs text-white">
                             <MoveRight className="h-3.5 w-3.5" />
                             Open
@@ -545,7 +846,7 @@ export default function FilesPage() {
         </a>
       </div>
 
-      {qrModalFile && (
+      {qrModalFile && hasUsableShareLink(qrModalFile) && (
         <QRModal
           record={qrModalFile}
           url={buildShareUrl(baseUrl, qrModalFile.id, {
