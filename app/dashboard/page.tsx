@@ -1,10 +1,12 @@
 "use client"
 
 import { useAccount, useReadContract } from "wagmi"
+import { sepolia } from "wagmi/chains"
 import Link from "next/link"
 import { Upload, FolderOpen, Share2, Download, Lock, TrendingUp, FileText, ArrowRight, ArrowLeft, Settings, ExternalLink, Plus, Clock, Eye, EyeOff, Shield, Zap } from "lucide-react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { FHENIX_DROPBOX_ABI, CONTRACT_ADDRESS, formatNativePrice } from "@/lib/fhenix"
+import { getAllLocalFileSecrets } from "@/lib/share-links"
 
 function StatCard({ icon: Icon, label, value, trend, href }: { icon: any; label: string; value: string; trend?: string; href?: string }) {
   return (
@@ -64,14 +66,18 @@ export default function DashboardPage() {
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
     functionName: 'getStats',
-    query: { enabled: isConnected }
+    account: address,
+    chainId: sepolia.id,
+    query: { enabled: mounted && isConnected && !!address }
   })
 
+  const localSecrets = useMemo(() => (address && mounted ? getAllLocalFileSecrets(address) : []), [address, mounted])
   const statTuple = stats as readonly [bigint, bigint, bigint, bigint] | undefined
   const totalFiles = statTuple ? Number(statTuple[0]) : 0
   const totalDownloads = statTuple ? Number(statTuple[1]) : 0
   const totalVolume = statTuple ? statTuple[2] : 0n
-  const myFileCount = statTuple ? Number(statTuple[3]) : 0
+  const contractMyFileCount = statTuple ? Number(statTuple[3]) : 0
+  const myFileCount = Math.max(contractMyFileCount, localSecrets.length)
 
   if (!mounted) {
     return (
