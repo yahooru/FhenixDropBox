@@ -713,7 +713,7 @@ export default function FilesPage() {
           <div className="rounded-2xl border border-black/[0.07] bg-white p-4 text-xs text-black/45">
             <div className="mb-2 flex items-center gap-2 text-sm font-medium text-black/70">
               <Shield className="h-4 w-4" />
-              Wave 5 Tools
+              Automation Tools
             </div>
             CoFHE rule handles, team folders, webhook delivery, and subscriptions are recorded on-chain. Secret file keys stay in this browser and copied share links.
           </div>

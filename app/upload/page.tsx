@@ -204,6 +204,7 @@ export default function UploadPage() {
     address: CONTRACT_ADDRESS as `0x${string}`,
     abi: FHENIX_DROPBOX_ABI,
     functionName: "totalFiles",
+    chainId: sepolia.id,
     query: { enabled: !!address },
   }) as { data: bigint | undefined }
 
@@ -603,7 +604,7 @@ export default function UploadPage() {
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div>
-            <h1 className="text-2xl font-medium">Upload Wave 5 Batch</h1>
+            <h1 className="text-2xl font-medium">Upload Files</h1>
             <p className="text-sm text-black/50">
               Encrypt locally, pin to IPFS, and register up to 10 files on-chain in one transaction.
             </p>
@@ -845,7 +846,7 @@ export default function UploadPage() {
           <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-800">
             <div className="mb-1 flex items-center gap-2 font-medium">
               <Shield className="h-4 w-4" />
-              Wave 5 Ready
+              Production Ready
             </div>
             <p className="text-xs text-emerald-700/80">
               Batch upload, CoFHE rule handles, expiry, previews, folders, webhooks, subscriptions, and batch download accounting are supported on-chain.

@@ -42,6 +42,7 @@ import {
   type SubscriptionPlanInfo,
 } from "@/lib/fhenix"
 import { decryptFile, formatFileSize, getFromIPFS, getIPFSUrl } from "@/lib/ipfs"
+import { copyTextToClipboard } from "@/lib/clipboard"
 import { parseShareSecret, type ShareSecret } from "@/lib/share-links"
 
 interface AccessInfo {
@@ -113,6 +114,7 @@ function ShareContent({ fileId }: { fileId: number }) {
     abi: FHENIX_DROPBOX_ABI,
     functionName: "getFileInfo",
     args: [BigInt(fileId)],
+    chainId: sepolia.id,
     query: { enabled: mounted && fileId >= 0 },
   })
 
@@ -121,6 +123,7 @@ function ShareContent({ fileId }: { fileId: number }) {
     abi: FHENIX_DROPBOX_ABI,
     functionName: "getFileMetadata",
     args: [BigInt(fileId)],
+    chainId: sepolia.id,
     query: { enabled: mounted && fileId >= 0 },
   })
 
@@ -129,6 +132,8 @@ function ShareContent({ fileId }: { fileId: number }) {
     abi: FHENIX_DROPBOX_ABI,
     functionName: "getAccessInfo",
     args: [BigInt(fileId)],
+    account: address,
+    chainId: sepolia.id,
     query: { enabled: mounted && !!address && fileId >= 0 },
   }) as { data: readonly [boolean, boolean] | AccessInfo | undefined; refetch: () => Promise<unknown> }
 
@@ -137,6 +142,7 @@ function ShareContent({ fileId }: { fileId: number }) {
     abi: FHENIX_DROPBOX_ABI,
     functionName: "getFileOwner",
     args: [BigInt(fileId)],
+    chainId: sepolia.id,
     query: { enabled: mounted && fileId >= 0 },
   }) as { data: `0x${string}` | undefined }
 
@@ -145,6 +151,7 @@ function ShareContent({ fileId }: { fileId: number }) {
     abi: FHENIX_DROPBOX_ABI,
     functionName: "getFilePrivacy",
     args: [BigInt(fileId)],
+    chainId: sepolia.id,
     query: { enabled: mounted && fileId >= 0 },
   })
 
@@ -153,6 +160,7 @@ function ShareContent({ fileId }: { fileId: number }) {
     abi: FHENIX_DROPBOX_ABI,
     functionName: "getFileSubscriptionPlans",
     args: [BigInt(fileId)],
+    chainId: sepolia.id,
     query: { enabled: mounted && fileId >= 0 },
   })
 
@@ -162,6 +170,7 @@ function ShareContent({ fileId }: { fileId: number }) {
     abi: FHENIX_DROPBOX_ABI,
     functionName: "subscriptionPlans",
     args: [BigInt(id)],
+    chainId: sepolia.id,
   })), [planIds])
   const { data: rawPlans } = useReadContracts({
     contracts: planContracts,
@@ -169,13 +178,13 @@ function ShareContent({ fileId }: { fileId: number }) {
   })
 
   const { writeContract: requestAccess, data: accessTxHash, isPending: isRequestingAccess, error: accessWriteError } = useWriteContract()
-  const { isLoading: isWaitingAccess, isSuccess: accessSuccess } = useWaitForTransactionReceipt({ hash: accessTxHash })
+  const { isLoading: isWaitingAccess, isSuccess: accessSuccess } = useWaitForTransactionReceipt({ hash: accessTxHash, chainId: sepolia.id })
 
   const { writeContract: subscribe, data: subscribeTxHash, isPending: isSubscribing, error: subscribeWriteError } = useWriteContract()
-  const { isLoading: isWaitingSubscribe, isSuccess: subscribeSuccess } = useWaitForTransactionReceipt({ hash: subscribeTxHash })
+  const { isLoading: isWaitingSubscribe, isSuccess: subscribeSuccess } = useWaitForTransactionReceipt({ hash: subscribeTxHash, chainId: sepolia.id })
 
   const { writeContract: recordDownload, data: downloadTxHash, isPending: isDownloadingTx, error: downloadWriteError } = useWriteContract()
-  const { isLoading: isWaitingDownload, isSuccess: downloadSuccess } = useWaitForTransactionReceipt({ hash: downloadTxHash })
+  const { isLoading: isWaitingDownload, isSuccess: downloadSuccess } = useWaitForTransactionReceipt({ hash: downloadTxHash, chainId: sepolia.id })
 
   const fileInfo = useMemo<FileInfo | undefined>(() => tupleToFileInfo(rawFileInfo), [rawFileInfo])
   const metadata = useMemo<FileMetadata | undefined>(() => tupleToFileMetadata(rawMetadata), [rawMetadata])
@@ -336,9 +345,13 @@ function ShareContent({ fileId }: { fileId: number }) {
   }
 
   const copyCurrentLink = async () => {
-    await navigator.clipboard.writeText(window.location.href)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1600)
+    try {
+      await copyTextToClipboard(window.location.href)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1600)
+    } catch {
+      setError("Copy failed. Select the address bar link and copy it manually.")
+    }
   }
 
   if (!mounted) {

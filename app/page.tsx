@@ -3,7 +3,7 @@
 import React, { useRef, useEffect, useState, useCallback } from "react"
 import Link from "next/link"
 import { useAccount, useConnect, useDisconnect } from "wagmi"
-import { Shield, Lock, Key, Upload, Database, Eye, EyeOff, CheckCircle2, FileText, ChevronDown, FolderPlus, Link2, Download, Share2, Settings, Clock } from "lucide-react"
+import { Shield, Lock, Key, Upload, Database, Eye, EyeOff, FileText, ChevronDown, FolderPlus, Link2, Download, Share2, Settings, Clock } from "lucide-react"
 import { IntroAnimation, INTRO_DURATION_MS, HERO_REVEAL_MS } from "@/components/intro-animation"
 
 // ─── Intersection Observer hook ──────────────────────────────────────────────
@@ -112,8 +112,6 @@ function WalletButton() {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function FhenixDropBoxPage() {
-  const [email, setEmail] = useState("")
-  const [submitted, setSubmitted] = useState(false)
   const [heroReady, setHeroReady] = useState(false)
   const [videoReady, setVideoReady] = useState(false)
 
@@ -407,33 +405,21 @@ export default function FhenixDropBoxPage() {
           <p className="text-sm text-black/45 leading-relaxed mb-10">
             Join the privacy revolution. Upload your first file and experience truly private file sharing.
           </p>
-          {!submitted ? (
-            <form
-              onSubmit={e => { e.preventDefault(); if (email) setSubmitted(true) }}
-              className="flex flex-col sm:flex-row gap-2 max-w-md mx-auto"
+          <div className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
+            <Link
+              href="/upload"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#111] px-8 py-3 text-sm font-medium tracking-widest text-white transition-colors hover:bg-[#333]"
             >
-              <input
-                type="email"
-                placeholder="your@email.com"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                required
-                className="flex-1 bg-white border border-black/10 rounded-xl px-4 py-3 text-sm text-[#111] placeholder:text-black/25 focus:outline-none focus:border-black/25 transition-colors"
-              />
-              <Link
-                href="/dashboard"
-                className="px-8 py-3 bg-[#111] text-white text-sm rounded-xl hover:bg-[#333] transition-colors tracking-widest font-medium flex items-center justify-center gap-2"
-              >
-                <Upload className="w-4 h-4" />
-                GET STARTED
-              </Link>
-            </form>
-          ) : (
-            <div className="inline-flex items-center gap-2 px-6 py-3 rounded-xl border border-emerald-600/20 bg-emerald-50 text-emerald-700 text-sm">
-              <CheckCircle2 className="w-4 h-4" />
-              {"You're on the list. We'll be in touch."}
-            </div>
-          )}
+              <Upload className="w-4 h-4" />
+              UPLOAD FILES
+            </Link>
+            <Link
+              href="/dashboard"
+              className="flex flex-1 items-center justify-center rounded-xl border border-black/10 bg-white px-8 py-3 text-sm font-medium tracking-widest text-[#111] transition-colors hover:border-black/20 hover:bg-black/[0.02]"
+            >
+              DASHBOARD
+            </Link>
+          </div>
         </div>
       </section>
 
@@ -452,8 +438,8 @@ export default function FhenixDropBoxPage() {
           </div>
 
           <div className="flex items-center gap-6">
-            <a href="#" className="text-xs text-black/25 hover:text-black/55 transition-colors tracking-widest">Privacy</a>
-            <a href="#" className="text-xs text-black/25 hover:text-black/55 transition-colors tracking-widest">Terms</a>
+            <span className="text-xs text-black/25 tracking-widest">PRIVACY-FIRST</span>
+            <span className="text-xs text-black/25 tracking-widest">ON-CHAIN ACCESS</span>
             <a href="https://fhenix.zone" target="_blank" rel="noopener noreferrer" className="text-xs text-black/25 hover:text-black/55 transition-colors tracking-widest">Fhenix</a>
           </div>
         </div>

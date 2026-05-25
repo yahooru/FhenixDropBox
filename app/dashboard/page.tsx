@@ -207,7 +207,7 @@ export default function DashboardPage() {
             { icon: Clock, title: "Link Expiry", desc: "24h, 7d, 30d, or never-expire links", available: true },
             { icon: TrendingUp, title: "Private Analytics", desc: "Local analytics from contract reads without external tracking", available: true },
             { icon: EyeOff, title: "Anonymous Share Mode", desc: "Owner lookup can be hidden behind a zero-address public view", available: true },
-            { icon: Zap, title: "Wave 5 Tools", desc: "Relayer uploads, webhooks, teams, subscriptions, and batch downloads", available: true },
+            { icon: Zap, title: "Automation Tools", desc: "Relayer uploads, webhooks, teams, subscriptions, and batch downloads", available: true },
           ].map((feature, i) => (
             <div key={i} className="flex items-center gap-4 p-4">
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${feature.available ? 'bg-emerald-50' : 'bg-black/[0.05]'}`}>

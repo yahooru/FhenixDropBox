@@ -34,7 +34,7 @@ export const metadata: Metadata = {
   twitter: {
     card: 'summary',
     title: 'FhenixDropBox - Privacy-First File Sharing',
-    description: 'Encrypted IPFS sharing with Sepolia access control and Wave 5 privacy tooling.',
+    description: 'Encrypted IPFS sharing with Sepolia access control and production privacy tooling.',
     images: ['/favicon.png'],
   },
 }
