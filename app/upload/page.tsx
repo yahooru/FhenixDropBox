@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { useAccount, useReadContract, useSwitchChain, useWaitForTransactionReceipt, useWalletClient, useWriteContract } from "wagmi"
+import { useAccount, usePublicClient, useReadContract, useSwitchChain, useWalletClient, useWriteContract } from "wagmi"
 import { sepolia } from "wagmi/chains"
-import { getAddress, keccak256, parseEventLogs, toBytes, type Hex } from "viem"
+import { getAddress, keccak256, parseEventLogs, toBytes, type Hex, type TransactionReceipt } from "viem"
 import { QRCodeSVG } from "qrcode.react"
 import {
   AlertCircle,
@@ -141,8 +141,8 @@ export default function UploadPage() {
   const { address, isConnected, chain, chainId: walletChainId, connector } = useAccount()
   const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain()
   const { data: walletClient } = useWalletClient()
-  const { writeContract, data: txHash, isPending, error: writeError } = useWriteContract()
-  const { data: receipt, isLoading: isWaiting, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
+  const publicClient = usePublicClient({ chainId: sepolia.id })
+  const { writeContractAsync, isPending, error: writeError } = useWriteContract()
 
   const [dragActive, setDragActive] = useState(false)
   const [files, setFiles] = useState<FileItem[]>([])
@@ -166,6 +166,9 @@ export default function UploadPage() {
   const [notice, setNotice] = useState<string | null>(null)
   const [cofheStep, setCofheStep] = useState<string | null>(null)
   const [qrModalFile, setQrModalFile] = useState<{ fileId: bigint; file: FileItem } | null>(null)
+  const [receipt, setReceipt] = useState<TransactionReceipt | null>(null)
+  const [txHash, setTxHash] = useState<Hex | null>(null)
+  const [isWaiting, setIsWaiting] = useState(false)
 
   useEffect(() => {
     setBaseUrl(window.location.origin)
@@ -350,12 +353,10 @@ export default function UploadPage() {
     setDeployed(true)
   }, [address, anonymousMode, readyFiles])
 
-  useEffect(() => {
-    if (!isSuccess || deployed || !receipt) return
-
+  const fileIdsFromReceipt = useCallback((confirmedReceipt: TransactionReceipt, expectedCount: number, fallbackStartId: bigint) => {
     const uploadLogs = parseEventLogs({
       abi: FHENIX_DROPBOX_ABI,
-      logs: receipt.logs,
+      logs: confirmedReceipt.logs,
       eventName: "FileUploaded",
     })
     const loggedFileIds = uploadLogs
@@ -365,15 +366,51 @@ export default function UploadPage() {
       })
       .filter((fileId): fileId is bigint => fileId !== undefined)
 
-    if (loggedFileIds.length === readyFiles.length) {
-      finalizeDeployedBatch(loggedFileIds)
-      return
+    if (loggedFileIds.length === expectedCount) return loggedFileIds
+
+    return Array.from({ length: expectedCount }, (_, index) => fallbackStartId + BigInt(index))
+  }, [])
+
+  const readTotalFiles = useCallback(async () => {
+    if (!publicClient) {
+      if (totalFilesBefore !== undefined) return totalFilesBefore
+      throw new Error("Sepolia RPC client is not ready. Reconnect your wallet and try again.")
     }
 
-    if (totalFilesBefore === undefined) return
-    const startId = Number(totalFilesBefore)
-    finalizeDeployedBatch(readyFiles.map((_, index) => BigInt(startId + index)))
-  }, [deployed, finalizeDeployedBatch, isSuccess, readyFiles, receipt, totalFilesBefore])
+    return await publicClient.readContract({
+      address: CONTRACT_ADDRESS as Hex,
+      abi: FHENIX_DROPBOX_ABI,
+      functionName: "totalFiles",
+    }) as bigint
+  }, [publicClient, totalFilesBefore])
+
+  const finalizeDirectUpload = useCallback(async (hash: Hex, expectedCount: number, fallbackStartId: bigint) => {
+    if (!publicClient) {
+      throw new Error("Sepolia RPC client is not ready. Reconnect your wallet and try again.")
+    }
+
+    setTxHash(hash)
+    setNotice(`Transaction submitted: ${hash.slice(0, 10)}...${hash.slice(-8)}. Waiting for Sepolia confirmation.`)
+    setIsWaiting(true)
+
+    try {
+      const confirmedReceipt = await publicClient.waitForTransactionReceipt({
+        hash,
+        confirmations: 1,
+        timeout: 180_000,
+      })
+
+      setReceipt(confirmedReceipt)
+      if (confirmedReceipt.status !== "success") {
+        throw new Error("Upload transaction reverted on-chain.")
+      }
+
+      finalizeDeployedBatch(fileIdsFromReceipt(confirmedReceipt, expectedCount, fallbackStartId))
+      setNotice("Batch registered on-chain.")
+    } finally {
+      setIsWaiting(false)
+    }
+  }, [fileIdsFromReceipt, finalizeDeployedBatch, publicClient])
 
   const submitRelayedUpload = useCallback(async (inputs: UploadInput[]) => {
     if (!address) throw new Error("Connect your wallet before submitting an anonymous upload")
@@ -447,6 +484,8 @@ export default function UploadPage() {
 
     setDeploying(true)
     setNotice(null)
+    setReceipt(null)
+    setTxHash(null)
 
     try {
       const price = parseNativePrice(accessRules.price || "0")
@@ -493,8 +532,9 @@ export default function UploadPage() {
           onStep: setCofheStep,
         })
         const rulesBatch: ConfidentialRuleInput[] = readyFiles.map(() => encryptedRules)
+        const totalFilesBeforeTx = await readTotalFiles()
 
-        writeContract({
+        const hash = await writeContractAsync({
           address: CONTRACT_ADDRESS as `0x${string}`,
           abi: FHENIX_DROPBOX_ABI,
           functionName: "uploadFilesBatchWithConfidentialRules",
@@ -502,16 +542,19 @@ export default function UploadPage() {
           chainId: sepolia.id,
         })
         setCofheStep(null)
+        await finalizeDirectUpload(hash, readyFiles.length, totalFilesBeforeTx)
         return
       }
 
-      writeContract({
+      const totalFilesBeforeTx = await readTotalFiles()
+      const hash = await writeContractAsync({
         address: CONTRACT_ADDRESS as `0x${string}`,
         abi: FHENIX_DROPBOX_ABI,
         functionName: "uploadFilesBatch",
         args: [inputs],
         chainId: sepolia.id,
       })
+      await finalizeDirectUpload(hash, readyFiles.length, totalFilesBeforeTx)
     } catch (error) {
       console.error("Deploy error:", error)
       setNotice(error instanceof Error ? error.message : "Failed to submit transaction")
@@ -840,7 +883,7 @@ export default function UploadPage() {
             ) : isPending || isWaiting || deploying ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                {isPending ? "Confirm in wallet..." : "Writing on-chain..."}
+                {isPending ? "Confirm in wallet..." : isWaiting ? "Waiting for confirmation..." : txHash ? "Finalizing upload..." : "Writing on-chain..."}
               </>
             ) : (
               <>
